@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-Family Manager</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f4f9; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        select, textarea, button { width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box; }
+        button { background: #0068ff; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        h3 { margin-top: 0; color: #333; }
+        .status { padding: 10px; border-radius: 5px; display: none; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h3>Quản lý Cửa hàng</h3>
+        
+        <label>Chọn Cửa hàng:</label>
+        <select id="storeId">
+            <option value="CH1">Cửa hàng 1</option>
+            <option value="CH2">Cửa hàng 2</option>
+        </select>
+
+        <label>Loại giao dịch:</label>
+        <select id="action">
+            <option value="SALE">Bán hàng (Trừ kho)</option>
+            <option value="NHAP">Nhập hàng (Cộng kho)</option>
+        </select>
+
+        <label>Nhập danh sách (Mã SP, Số lượng, Giá):</label>
+        <textarea id="content" rows="6" placeholder="Ví dụ:&#10;mitom, 10, 5000&#10;sua, 5, 15000"></textarea>
+        
+        <div id="statusBox" class="status"></div>
+        <button id="sendBtn" onclick="sendData()">XÁC NHẬN GỬI</button>
+    </div>
+
+    <script>
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwW3dR5sttm-duv1dq_SRtQkvlNJJP3WW0QmVuaupbSpKiPY16do-1xJCvAHHe7jXYM/exec";
+
+        async function sendData() {
+            const btn = document.getElementById('sendBtn');
+            const statusBox = document.getElementById('statusBox');
+            const content = document.getElementById('content').value.trim();
+            const storeId = document.getElementById('storeId').value;
+            const action = document.getElementById('action').value;
+
+            if (!content) return alert("Vui lòng nhập dữ liệu!");
+
+            btn.disabled = true;
+            statusBox.style.display = "block";
+            statusBox.style.background = "#eee";
+            statusBox.innerText = "Đang xử lý...";
+
+            // Tách dữ liệu thành mảng
+            const lines = content.split('\n');
+            const items = lines.map(line => {
+                const p = line.split(',');
+                return {
+                    maSp: p[0].trim(),
+                    qty: parseFloat(p[1]),
+                    price: parseFloat(p[2]),
+                    note: ""
+                };
+            });
+
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action, storeId, items })
+                });
+                const result = await response.json();
+                
+                if (result.status === "success") {
+                    statusBox.style.background = "#d4edda";
+                    statusBox.innerText = "Thành công: " + result.message;
+                    document.getElementById('content').value = "";
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                statusBox.style.background = "#f8d7da";
+                statusBox.innerText = "Lỗi: " + error.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
