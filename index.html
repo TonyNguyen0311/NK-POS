@@ -6,9 +6,9 @@
   <title>Quản lý Chuỗi Cửa Hàng - ZFamily POS</title>
 
   <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss
+  <script src="https://cdn.tailwindcss.com"></script>
   <!-- Font Awesome (icon) -->
-  <link rel="stylesheet" href="ajax/libs/font-awesome/6.5.0/css/all.min.css
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 
   <style>
     .tab-active { border-bottom: 4px solid #2563eb; color:#2563eb; font-weight: 900; }
@@ -85,7 +85,7 @@
         <div id="add-success" class="hidden p-3 rounded-xl bg-green-50 text-green-700 text-sm font-bold"></div>
 
         <div class="relative h-44 bg-slate-100 rounded-3xl border-2 border-dashed flex items-center justify-center overflow-hidden">
-          <img id="img-preview" class="absolute inset-0 w-full h-full object-cover hidden">
+          <img id="img-preview" class="absolute inset-0 w-full h-full object-cover hidden" alt="preview">
           <i class="fas fa-camera text-3xl text-slate-300"></i>
           <input type="file" accept="image/*" capture="environment"
                  onchange="processFile(this)" class="absolute inset-0 opacity-0 cursor-pointer">
@@ -168,7 +168,7 @@
 <!-- ====================== APP SCRIPT CLIENT ====================== -->
 <script>
   // === 1) CONFIG: DÁN URL WEB APP (Apps Script) TẠI ĐÂY ===
-  const API_URL = "https://script.google.com/macros/s/AKfycbzBqXpVe-jZWEq4TFnYSZ6f91v7BV7pa-Ey7Q6B-aJSnT1C3D9JwTzbAf9WA__adYsI/exec"; // ví dụ: https://script.google.com/macros/s/AKfycb.../exec
+  const API_URL = "https://script.google.com/macros/s/AKfycbzBqXpVe-jZWEq4TFnYSZ6f91v7BV7pa-Ey7Q6B-aJSnT1C3D9JwTzbAf9WA__adYsI/exec"; // ví dụ
 
   // === 2) STATE ===
   let capturedImage = "";      // DataURL ảnh sản phẩm
@@ -178,33 +178,39 @@
   // === 3) UTILITIES ===
   function showToast(msg, ms = 2500) {
     const t = document.getElementById('toast');
+    if (!t) return;
     t.textContent = msg;
     t.classList.remove('hidden');
     setTimeout(() => t.classList.add('hidden'), ms);
   }
   function showError(elId, msg) {
     const el = document.getElementById(elId);
+    if (!el) { console.warn('Missing element', elId); return; }
     el.textContent = msg || 'Đã xảy ra lỗi';
     el.classList.remove('hidden');
     setTimeout(() => el.classList.add('hidden'), 3500);
   }
   function showSuccess(elId, msg) {
     const el = document.getElementById(elId);
+    if (!el) return;
     el.textContent = msg || 'Thành công';
     el.classList.remove('hidden');
     setTimeout(() => el.classList.add('hidden'), 2500);
   }
-  function hideLogin()  { document.getElementById('login-screen').classList.add('hidden'); }
-  function showLogin()  { document.getElementById('login-screen').classList.remove('hidden'); }
-  function showMain()   { document.getElementById('main-screen').classList.remove('hidden'); }
+  function hideLogin()  { const el = document.getElementById('login-screen'); if (el) el.classList.add('hidden'); }
+  function showLogin()  { const el = document.getElementById('login-screen'); if (el) el.classList.remove('hidden'); }
+  function showMain()   { const el = document.getElementById('main-screen'); if (el) el.classList.remove('hidden'); }
 
   // Chuyển tab
   function showTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('nav button').forEach(el => el.classList.remove('tab-active'));
+    // Chỉ remove class tab-active trên các nút trong khu vực tabs (an toàn hơn)
+    document.querySelectorAll('.flex.justify-around button').forEach(el => el.classList.remove('tab-active'));
 
-    document.getElementById('tab-' + tabName).classList.remove('hidden');
-    document.getElementById('btn-' + tabName).classList.add('tab-active');
+    const tabEl = document.getElementById('tab-' + tabName);
+    const btnEl = document.getElementById('btn-' + tabName);
+    if (tabEl) tabEl.classList.remove('hidden');
+    if (btnEl) btnEl.classList.add('tab-active');
 
     if (tabName === 'list' || tabName === 'stock') loadProducts();
   }
@@ -224,7 +230,8 @@
       if (json.status === 'success') {
         const u = json.data;
         localStorage.setItem('zf_user', JSON.stringify(u));
-        document.getElementById('user-tag').innerText = `Chào, ${u.name} (${u.role})`;
+        const userTag = document.getElementById('user-tag');
+        if (userTag) userTag.innerText = `Chào, ${u.name} (${u.role})`;
         hideLogin();
         showMain();
         showTab('add');
@@ -245,8 +252,10 @@
     reader.onload = e => {
       capturedImage = e.target.result;
       const img = document.getElementById('img-preview');
-      img.src = capturedImage;
-      img.classList.remove('hidden');
+      if (img) {
+        img.src = capturedImage;
+        img.classList.remove('hidden');
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -278,8 +287,12 @@
       if (json.status === 'success') {
         showSuccess('add-success', `Đã tạo mã: ${json.data.smartCode}`);
         // reset form
-        ['p-name','p-type','p-brand','p-origin','p-warranty','p-price'].forEach(id => document.getElementById(id).value = '');
-        document.getElementById('img-preview').classList.add('hidden');
+        ['p-name','p-type','p-brand','p-origin','p-warranty','p-price'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+        const img = document.getElementById('img-preview');
+        if (img) img.classList.add('hidden');
         capturedImage = '';
       } else {
         showError('add-error', json.message || 'Không lưu được sản phẩm');
@@ -314,20 +327,25 @@
     const container = document.getElementById('product-container');
     const empty = document.getElementById('list-empty');
 
+    if (!container) return;
     if (!allProducts.length) {
       container.innerHTML = '';
-      empty.classList.remove('hidden');
+      if (empty) empty.classList.remove('hidden');
       return;
     }
-    empty.classList.add('hidden');
+    if (empty) empty.classList.add('hidden');
 
     container.innerHTML = allProducts.map(p => `
       <div class="bg-white p-4 rounded-3xl flex items-center shadow-sm border">
-        <img src="${p.image || 'https://via.placeholder.com/150'}" class="w-20 h-20 roundedtight">${p.name || '-'}</h4>
-          <p class="text-[10px] font-bold text-blue-600 bg-blue-50 inline-block px-2 rounded-md mt-1">${p.id || ''}</p>
-          <p class="text-xs text-slate-400 font-bold">${p.brand || ''} • ${p.type || ''}</p>
+        <div class="flex items-center gap-4">
+          <img src="${p.image || 'https://via.placeholder.com/150'}" alt="${p.name || ''}" class="w-20 h-20 rounded-xl object-cover">
+          <div>
+            <div class="font-black">${p.name || '-'}</div>
+            <p class="text-[10px] font-bold text-blue-600 bg-blue-50 inline-block px-2 rounded-md mt-1">${p.id || ''}</p>
+            <p class="text-xs text-slate-400 font-bold">${p.brand || ''} • ${p.typeId || p.type || ''}</p>
+          </div>
         </div>
-        <div class="text-right">
+        <div class="ml-auto text-right">
           <p class="font-black text-blue-600">${Number(p.price||0).toLocaleString()}đ</p>
         </div>
       </div>
@@ -336,6 +354,7 @@
 
   function renderStockSelect() {
     const select = document.getElementById('stock-product-id');
+    if (!select) return;
     select.innerHTML = '<option value="">-- Chọn sản phẩm --</option>' +
       allProducts.map(p => `<option value="${p.id}">${p.name} (${p.id})</option>`).join('');
   }
@@ -343,11 +362,13 @@
   // === 8) STOCK: Flow ===
   function setStockType(type) {
     stockType = type;
-    document.getElementById('btn-nhap').className =
+    const btnNhap = document.getElementById('btn-nhap');
+    const btnXuat = document.getElementById('btn-xuat');
+    if (btnNhap) btnNhap.className =
       type === 'NHAP'
         ? 'p-4 rounded-xl border-2 border-green-500 text-green-600 font-black bg-green-50'
         : 'p-4 rounded-xl border-2 border-slate-200 text-slate-400 font-bold';
-    document.getElementById('btn-xuat').className =
+    if (btnXuat) btnXuat.className =
       type === 'XUAT'
         ? 'p-4 rounded-xl border-2 border-red-500 text-red-600 font-black bg-red-50'
         : 'p-4 rounded-xl border-2 border-slate-200 text-slate-400 font-bold';
@@ -355,8 +376,8 @@
 
   async function handleStockUpdate() {
     const productSelect = document.getElementById('stock-product-id');
-    const productId = productSelect.value;
-    const productName = productSelect.selectedOptions[0]?.text || '';
+    const productId = productSelect ? productSelect.value : '';
+    const productName = productSelect ? (productSelect.selectedOptions[0]?.text || '') : '';
     const quantity = Number(document.getElementById('stock-qty').value || 0);
     const note = document.getElementById('stock-note').value.trim();
 
@@ -377,8 +398,10 @@
       const json = await res.json();
       if (json.status === 'success') {
         showSuccess('stock-success','Đã ghi giao dịch kho');
-        document.getElementById('stock-qty').value = '';
-        document.getElementById('stock-note').value = '';
+        const qty = document.getElementById('stock-qty');
+        const noteEl = document.getElementById('stock-note');
+        if (qty) qty.value = '';
+        if (noteEl) noteEl.value = '';
       } else {
         showError('stock-error', json.message || 'Không ghi được giao dịch kho');
       }
@@ -390,8 +413,10 @@
   // === 9) LOGOUT ===
   function handleLogout() {
     localStorage.removeItem('zf_user');
-    document.getElementById('user-tag').innerText = '';
-    document.getElementById('main-screen').classList.add('hidden');
+    const userTag = document.getElementById('user-tag');
+    if (userTag) userTag.innerText = '';
+    const main = document.getElementById('main-screen');
+    if (main) main.classList.add('hidden');
     showLogin();
   }
 
@@ -404,7 +429,8 @@
     if (u) {
       try {
         const user = JSON.parse(u);
-        document.getElementById('user-tag').innerText = `Chào, ${user.name} (${user.role})`;
+        const userTag = document.getElementById('user-tag');
+        if (userTag) userTag.innerText = `Chào, ${user.name} (${user.role})`;
         hideLogin(); showMain(); showTab('add');
       } catch {}
     }
@@ -412,4 +438,3 @@
 </script>
 </body>
 </html>
-
