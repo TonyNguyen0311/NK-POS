@@ -1,130 +1,55 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NK Store Management</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <title>Test Đăng Nhập Z-Family POS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        .menu-card { transition: all 0.2s; }
-        .menu-card:active { transform: scale(0.95); }
-        .hidden { display: none; }
+        body { font-family: sans-serif; display: flex; justify-content: center; padding: 50px; background: #f4f4f4; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 300px; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; cursor: pointer; }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-
-    <header class="bg-blue-600 text-white p-4 shadow-md text-center">
-        <h1 class="text-xl font-bold">Z-FAMILY MANAGEMENT</h1>
-    </header>
-
-    <div id="main-menu" class="p-6 grid grid-cols-2 gap-4">
-        <div onclick="openForm('Bán hàng (Trừ kho)', 'bg-green-600')" class="menu-card bg-white p-6 rounded-2xl shadow-sm flex flex-col items-center justify-center border-b-4 border-green-500">
-            <i class="fa-solid fa-cart-shopping text-3xl text-green-500 mb-2"></i>
-            <span class="font-bold text-gray-700">BÁN HÀNG</span>
-        </div>
-
-        <div onclick="openForm('Nhập hàng (Cộng kho)', 'bg-blue-600')" class="menu-card bg-white p-6 rounded-2xl shadow-sm flex flex-col items-center justify-center border-b-4 border-blue-500">
-            <i class="fa-solid fa-box-open text-3xl text-blue-500 mb-2"></i>
-            <span class="font-bold text-gray-700">NHẬP HÀNG</span>
-        </div>
-
-        <div onclick="openForm('Chi phí (Trừ tiền)', 'bg-red-600')" class="menu-card bg-white p-6 rounded-2xl shadow-sm flex flex-col items-center justify-center border-b-4 border-red-500">
-            <i class="fa-solid fa-file-invoice-dollar text-3xl text-red-500 mb-2"></i>
-            <span class="font-bold text-gray-700">CHI PHÍ</span>
-        </div>
-
-        <div onclick="window.open('LINK_GOOGLE_SHEET_CUA_BAN', '_blank')" class="menu-card bg-white p-6 rounded-2xl shadow-sm flex flex-col items-center justify-center border-b-4 border-purple-500">
-            <i class="fa-solid fa-chart-line text-3xl text-purple-500 mb-2"></i>
-            <span class="font-bold text-gray-700">BÁO CÁO</span>
-        </div>
-    </div>
-
-    <div id="form-container" class="hidden p-4">
-        <button onclick="backToMenu()" class="mb-4 text-blue-600 font-semibold">
-            <i class="fa-solid fa-arrow-left"></i> Quay lại menu
-        </button>
-        
-        <div class="bg-white p-6 rounded-xl shadow-lg">
-            <h2 id="form-title" class="text-xl font-bold mb-4 text-center text-white py-2 rounded"></h2>
-            
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Chọn Cửa hàng:</label>
-                    <select id="store" class="w-full p-2 border rounded-md mt-1">
-                        <option>Cửa hàng 1</option>
-                        <option>Cửa hàng 2</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 text-red-500 font-bold">Danh sách (Mã SP, Số lượng, Giá):</label>
-                    <textarea id="dataList" rows="4" class="w-full p-2 border rounded-md mt-1" placeholder="Ví dụ: mitom, 10, 5000"></textarea>
-                </div>
-
-                <button id="btnSubmit" onclick="sendData()" class="w-full py-3 rounded-lg text-white font-bold shadow-md">
-                    XÁC NHẬN GỬI
-                </button>
-                <p id="status" class="mt-4 text-center font-semibold text-green-600"></p>
-            </div>
-        </div>
+<body>
+    <div class="card">
+        <h3>Đăng nhập Hệ thống</h3>
+        <input type="text" id="phone" placeholder="Số điện thoại">
+        <input type="password" id="password" placeholder="Mật khẩu">
+        <button onclick="login()">Đăng nhập</button>
+        <p id="result"></p>
     </div>
 
     <script>
-        const scriptURL = 'https://script.google.com/macros/s/AKfycbw6I3g2s_WSClIr6Sib4Av6vhQP7HfCcS2RjOci0uFpRHfp0r9FsnNBBh_upBil5aED/exec'; // Thay bằng link Script của bạn
-        let currentType = '';
+        const API_URL = "https://script.google.com/macros/s/AKfycbzgvjxhx0URk95lA8JJu7KHbVFxfvb8pOW08ZPcTQZFzS0gZhDFENZLSW9jLv5o-SX5/exec";
 
-        function openForm(type, colorClass) {
-            currentType = type;
-            document.getElementById('main-menu').classList.add('hidden');
-            document.getElementById('form-container').classList.remove('hidden');
+        async function login() {
+            const phone = document.getElementById('phone').value;
+            const password = document.getElementById('password').value;
+            const resArea = document.getElementById('result');
             
-            const title = document.getElementById('form-title');
-            title.innerText = type.toUpperCase();
-            title.className = `text-xl font-bold mb-4 text-center text-white py-2 rounded ${colorClass}`;
-            document.getElementById('btnSubmit').className = `w-full py-3 rounded-lg text-white font-bold shadow-md ${colorClass}`;
-        }
+            resArea.innerText = "Đang kiểm tra...";
 
-        function backToMenu() {
-            document.getElementById('main-menu').classList.remove('hidden');
-            document.getElementById('form-container').classList.add('hidden');
-            document.getElementById('status').innerText = '';
-            document.getElementById('dataList').value = '';
-        }
-
-        function sendData() {
-            const btn = document.getElementById('btnSubmit');
-            const status = document.getElementById('status');
-            const data = document.getElementById('dataList').value;
-            const store = document.getElementById('store').value;
-
-            if(!data) { alert("Vui lòng nhập dữ liệu!"); return; }
-
-            btn.disabled = true;
-            btn.innerText = "ĐANG GỬI...";
-            status.innerText = "Vui lòng đợi...";
-
-            fetch(scriptURL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    store: store,
-                    type: currentType,
-                    data: data
-                })
-            })
-            .then(() => {
-                status.innerText = "Thành công: Đã cập nhật xong!";
-                btn.disabled = false;
-                btn.innerText = "XÁC NHẬN GỬI";
-                document.getElementById('dataList').value = "";
-                setTimeout(backToMenu, 2000); // Tự quay lại menu sau 2 giây
-            })
-            .catch(error => {
-                status.innerText = "Lỗi: " + error.message;
-                btn.disabled = false;
-            });
+            try {
+                const response = await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        action: "login",
+                        phone: phone,
+                        password: password
+                    })
+                });
+                const data = await response.json();
+                
+                if(data.status === "success") {
+                    resArea.style.color = "green";
+                    resArea.innerText = "✅ THÀNH CÔNG! Chào " + data.user.name + " (" + data.user.role + ")";
+                } else {
+                    resArea.style.color = "red";
+                    resArea.innerText = "❌ THẤT BẠI: " + data.message;
+                }
+            } catch (error) {
+                resArea.innerText = "Lỗi kết nối: " + error;
+            }
         }
     </script>
 </body>
