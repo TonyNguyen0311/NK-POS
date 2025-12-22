@@ -1,115 +1,109 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Z-Family POS</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-</head>
-<body class="bg-slate-50 font-sans">
-
-    <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
-        <div class="bg-white p-8 rounded-[2rem] shadow-xl w-full max-w-md border border-slate-100">
-            <h2 class="text-2xl font-black text-center mb-8">Đăng nhập Hệ thống</h2>
+<div id="tab-products" class="tab-content space-y-6">
+    <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+        <h2 class="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
+            <i class="fas fa-box-open text-blue-600"></i> Hồ sơ sản phẩm mới
+        </h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div class="space-y-4">
-                <input type="text" id="user-phone" placeholder="Số điện thoại" class="w-full p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500">
-                <input type="password" id="user-pass" placeholder="Mật khẩu" class="w-full p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500">
-                <button onclick="doLogin()" class="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold hover:bg-blue-700 transition-all">ĐĂNG NHẬP NGAY</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="main-screen" class="hidden min-h-screen">
-        <nav class="bg-white p-4 shadow-sm flex justify-between items-center px-8">
-            <h1 class="font-black text-blue-600">Z-FAMILY SYSTEM</h1>
-            <span id="display-user" class="text-sm font-bold text-slate-600"></span>
-        </nav>
-
-        <div class="max-w-2xl mx-auto mt-10 p-6 bg-white rounded-[2rem] shadow-sm">
-            <h3 class="text-xl font-bold mb-6">Thêm Sản phẩm mới</h3>
-            
-            <div class="space-y-4">
-                <div class="relative h-40 bg-slate-100 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center overflow-hidden">
-                    <img id="img-preview" class="absolute inset-0 w-full h-full object-cover hidden">
-                    <i class="fas fa-camera text-3xl text-slate-400"></i>
-                    <p class="text-xs font-bold text-slate-400">Bấm để chụp ảnh</p>
-                    <input type="file" accept="image/*" capture="environment" onchange="previewImage(this)" class="absolute inset-0 opacity-0 cursor-pointer">
+                <label class="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Hình ảnh thực tế</label>
+                <div class="relative w-full h-64 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center overflow-hidden group">
+                    <img id="preview-img" class="absolute inset-0 w-full h-full object-cover hidden">
+                    <div id="upload-ui" class="text-center p-4">
+                        <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm text-slate-400 group-hover:text-blue-500 transition-colors">
+                            <i class="fas fa-camera text-2xl"></i>
+                        </div>
+                        <p class="text-xs font-bold text-slate-400">Chụp ảnh sản phẩm hoặc chọn từ máy</p>
+                    </div>
+                    <input type="file" accept="image/*" capture="environment" onchange="handleImageFile(this)" class="absolute inset-0 opacity-0 cursor-pointer">
                 </div>
+            </div>
 
-                <input type="text" id="p-name" placeholder="Tên sản phẩm *" class="w-full p-4 bg-slate-50 rounded-xl outline-none">
-                <div class="grid grid-cols-2 gap-4">
-                    <input type="text" id="p-type" placeholder="Loại (Bệt, Sen...)" class="w-full p-4 bg-slate-50 rounded-xl outline-none">
-                    <input type="text" id="p-brand" placeholder="Nhãn hiệu" class="w-full p-4 bg-slate-50 rounded-xl outline-none">
+            <div class="space-y-4">
+                <div>
+                    <label class="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Tên sản phẩm *</label>
+                    <input type="text" id="p-name" placeholder="Ví dụ: Bệt liền khối Kazolas K12" class="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-bold">
                 </div>
                 <div class="grid grid-cols-2 gap-4">
-                    <input type="number" id="p-price" placeholder="Giá niêm yết" class="w-full p-4 bg-slate-50 rounded-xl outline-none">
-                    <input type="text" id="p-warranty" placeholder="Bảo hành" value="12 tháng" class="w-full p-4 bg-slate-50 rounded-xl outline-none">
+                    <div>
+                        <label class="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Loại hàng</label>
+                        <input type="text" id="p-type" placeholder="Bệt, Sen tắm..." class="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Nhãn hiệu</label>
+                        <input type="text" id="p-brand" placeholder="Kazolas, Inax..." class="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
                 </div>
-                
-                <button onclick="doAddProduct()" class="w-full bg-blue-600 text-white p-5 rounded-2xl font-black shadow-lg shadow-blue-100">LƯU & SINH MÃ SMART ID</button>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Giá niêm yết</label>
+                        <input type="number" id="p-price" placeholder="0" class="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-black text-blue-600">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Bảo hành</label>
+                        <input type="text" id="p-warranty" value="12 tháng" class="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
             </div>
         </div>
+
+        <button onclick="submitNewProduct()" class="w-full mt-8 bg-blue-600 text-white p-5 rounded-2xl font-black text-lg shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all">
+            LƯU SẢN PHẨM & TẠO MÃ SMART ID
+        </button>
     </div>
+</div>
 
-    <script>
-        const API_URL = "DÁN_LINK_TRIỂN_KHAI_CỦA_BẠN_VÀO_ĐÂY";
-        let base64Image = "";
+<script>
+    let base64String = ""; // Biến lưu trữ dữ liệu ảnh
 
-        function previewImage(input) {
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = e => {
-                    document.getElementById('img-preview').src = e.target.result;
-                    document.getElementById('img-preview').classList.remove('hidden');
-                    base64Image = e.target.result;
-                };
-                reader.readAsDataURL(input.files[0]);
-            }
+    // Hàm xử lý khi người dùng chọn/chụp ảnh
+    function handleImageFile(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                base64String = e.target.result;
+                document.getElementById('preview-img').src = e.target.result;
+                document.getElementById('preview-img').classList.remove('hidden');
+                document.getElementById('upload-ui').classList.add('hidden');
+            };
+            reader.readAsDataURL(input.files[0]);
         }
+    }
 
-        async function doLogin() {
-            const phone = document.getElementById('user-phone').value;
-            const password = document.getElementById('user-pass').value;
-            
-            try {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: "login", data: { phone, password } })
-                });
-                const json = await res.json();
-                if(json.status === "success") {
-                    document.getElementById('login-screen').classList.add('hidden');
-                    document.getElementById('main-screen').classList.remove('hidden');
-                    document.getElementById('display-user').innerText = "Chào, " + json.data.user.name;
-                } else {
-                    alert(json.message);
-                }
-            } catch (e) { alert("Lỗi kết nối!"); }
-        }
-
-        async function doAddProduct() {
-            const data = {
+    // Hàm gửi dữ liệu về Apps Script
+    async function submitNewProduct() {
+        const payload = {
+            action: "add_product",
+            data: {
                 name: document.getElementById('p-name').value,
                 typeId: document.getElementById('p-type').value,
                 brand: document.getElementById('p-brand').value,
                 price: document.getElementById('p-price').value,
                 warranty: document.getElementById('p-warranty').value,
-                image: base64Image
-            };
+                image: base64String
+            }
+        };
 
-            try {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: "add_product", data: data })
-                });
-                const json = await res.json();
-                if(json.status === "success") {
-                    alert("Thành công! Mã SP: " + json.data.smartCode);
-                    location.reload();
-                }
-            } catch (e) { alert("Lỗi lưu sản phẩm!"); }
+        if(!payload.data.name || !payload.data.typeId) return alert("Vui lòng điền các ô có dấu *");
+
+        showLoader(true); // Hiện màn hình chờ
+        try {
+            const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+            const result = await response.json();
+            if(result.status === 'success') {
+                alert("Thành công! Mã sản phẩm: " + result.smartCode);
+                resetForm(); // Xóa trắng form để nhập tiếp
+            }
+        } catch (err) {
+            alert("Lỗi kết nối máy chủ!");
         }
-    </script>
-</body>
-</html>
+        showLoader(false);
+    }
+
+    function resetForm() {
+        document.querySelectorAll('#tab-products input').forEach(i => i.value = "");
+        document.getElementById('preview-img').classList.add('hidden');
+        document.getElementById('upload-ui').classList.remove('hidden');
+        base64String = "";
+    }
+</script>
