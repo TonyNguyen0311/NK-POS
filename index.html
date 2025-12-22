@@ -1,55 +1,205 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
-    <title>Test Đăng Nhập Z-Family POS</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-Family POS System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; padding: 50px; background: #f4f4f4; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 300px; }
-        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; cursor: pointer; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .loader { border-top-color: #3498db; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body>
-    <div class="card">
-        <h3>Đăng nhập Hệ thống</h3>
-        <input type="text" id="phone" placeholder="Số điện thoại">
-        <input type="password" id="password" placeholder="Mật khẩu">
-        <button onclick="login()">Đăng nhập</button>
-        <p id="result"></p>
+<body class="bg-gray-100 min-h-screen">
+
+    <div id="loader" class="fixed inset-0 bg-white bg-opacity-80 flex items-center justify-center z-50 hidden">
+        <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+    </div>
+
+    <div id="page-login" class="page active flex items-center justify-center min-h-screen">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-blue-600">Z-Family POS</h1>
+                <p class="text-gray-500">Hệ thống quản lý chuỗi cửa hàng</p>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Số điện thoại</label>
+                    <input type="text" id="login-phone" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none" placeholder="0939xxxxxx">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Mật khẩu</label>
+                    <input type="password" id="login-pass" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none" placeholder="•••••">
+                </div>
+                <button onclick="handleLogin()" class="w-full bg-blue-600 text-white p-3 rounded-lg font-bold hover:bg-blue-700 transition">ĐĂNG NHẬP</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="page-main" class="page min-h-screen flex flex-col">
+        <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
+            <h2 class="font-bold text-lg"><i class="fas fa-store mr-2"></i> <span id="display-user">Admin</span></h2>
+            <button onclick="logout()" class="text-sm bg-blue-500 px-3 py-1 rounded">Thoát</button>
+        </header>
+
+        <nav class="bg-white shadow flex overflow-x-auto p-2 space-x-4 border-b">
+            <button onclick="showSection('section-pos')" class="flex-none px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600">Bán hàng</button>
+            <button onclick="showSection('section-products')" class="flex-none px-4 py-2 font-medium text-gray-600">Sản phẩm</button>
+            <button onclick="showSection('section-stock')" class="flex-none px-4 py-2 font-medium text-gray-600">Kho hàng</button>
+            <button onclick="showSection('section-reports')" class="flex-none px-4 py-2 font-medium text-gray-600">Báo cáo</button>
+        </nav>
+
+        <main class="flex-grow p-4">
+            
+            <section id="section-pos" class="section">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="md:col-span-2 space-y-4">
+                        <input type="text" placeholder="Tìm tên hoặc mã SP..." class="w-full p-3 rounded-lg border shadow-sm">
+                        <div id="pos-product-list" class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                            </div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-lg h-fit sticky top-4">
+                        <h3 class="font-bold border-b pb-2 mb-4">Đơn hàng hiện tại</h3>
+                        <div id="cart-items" class="space-y-3 mb-4 max-h-60 overflow-y-auto">
+                            <p class="text-gray-400 text-sm italic">Chưa có sản phẩm nào...</p>
+                        </div>
+                        <div class="border-t pt-4 space-y-2">
+                            <div class="flex justify-between font-bold text-lg">
+                                <span>Tổng cộng:</span>
+                                <span id="cart-total" class="text-red-600">0đ</span>
+                            </div>
+                            <button onclick="submitOrder()" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-green-700">THANH TOÁN</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="section-products" class="section hidden">
+                <div class="bg-white p-6 rounded-xl shadow-md max-w-2xl mx-auto">
+                    <h3 class="text-xl font-bold mb-6 text-gray-800 border-b pb-2">Thêm Sản Phẩm Mới (Smart Digit)</h3>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div>
+                            <label class="text-xs font-bold text-gray-500 uppercase">Tên sản phẩm *</label>
+                            <input type="text" id="p-name" class="w-full p-2 border-b outline-none focus:border-blue-500">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 uppercase">Loại (VD: TS, MP) *</label>
+                                <input type="text" id="p-type" class="w-full p-2 border-b outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 uppercase">Nhãn hiệu (VD: Z) *</label>
+                                <input type="text" id="p-brand" class="w-full p-2 border-b outline-none focus:border-blue-500">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 uppercase">Xuất xứ (Mặc định VN)</label>
+                                <input type="text" id="p-origin" class="w-full p-2 border-b outline-none focus:border-blue-500" placeholder="VN">
+                            </div>
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 uppercase">Giá bán</label>
+                                <input type="number" id="p-price" class="w-full p-2 border-b outline-none focus:border-blue-500" value="0">
+                            </div>
+                        </div>
+                        <button onclick="handleSaveProduct()" class="mt-4 bg-blue-600 text-white py-3 rounded-lg font-bold shadow-md">LƯU & SINH MÃ</button>
+                    </div>
+                </div>
+            </section>
+
+        </main>
     </div>
 
     <script>
+        // CẤU HÌNH: THAY LINK CỦA BẠN VÀO ĐÂY
         const API_URL = "https://script.google.com/macros/s/AKfycbzBqXpVe-jZWEq4TFnYSZ6f91v7BV7pa-Ey7Q6B-aJSnT1C3D9JwTzbAf9WA__adYsI/exec";
+        
+        let currentUser = null;
+        let cart = [];
 
-        async function login() {
-            const phone = document.getElementById('phone').value;
-            const password = document.getElementById('password').value;
-            const resArea = document.getElementById('result');
-            
-            resArea.innerText = "Đang kiểm tra...";
+        // --- HÀM CƠ BẢN ---
+        function toggleLoader(show) {
+            document.getElementById('loader').classList.toggle('hidden', !show);
+        }
 
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+        }
+
+        function showSection(sectionId) {
+            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
+            document.getElementById(sectionId).classList.remove('hidden');
+            // Cập nhật style tab
+            document.querySelectorAll('nav button').forEach(btn => {
+                btn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+                btn.classList.add('text-gray-600');
+            });
+            event.target.classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+        }
+
+        // --- ĐĂNG NHẬP ---
+        async function handleLogin() {
+            const phone = document.getElementById('login-phone').value;
+            const pass = document.getElementById('login-pass').value;
+            if(!phone || !pass) return alert("Vui lòng nhập đầy đủ");
+
+            toggleLoader(true);
             try {
                 const response = await fetch(API_URL, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        action: "login",
-                        phone: phone,
-                        password: password
-                    })
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'login', phone, password: pass })
                 });
                 const data = await response.json();
-                
-                if(data.status === "success") {
-                    resArea.style.color = "green";
-                    resArea.innerText = "✅ THÀNH CÔNG! Chào " + data.user.name + " (" + data.user.role + ")";
+                if(data.status === 'success') {
+                    currentUser = data.user;
+                    document.getElementById('display-user').innerText = `${currentUser.name} (${currentUser.role})`;
+                    showPage('page-main');
                 } else {
-                    resArea.style.color = "red";
-                    resArea.innerText = "❌ THẤT BẠI: " + data.message;
+                    alert(data.message);
                 }
-            } catch (error) {
-                resArea.innerText = "Lỗi kết nối: " + error;
+            } catch (e) {
+                alert("Lỗi kết nối hệ thống!");
             }
+            toggleLoader(false);
+        }
+
+        // --- SẢN PHẨM ---
+        async function handleSaveProduct() {
+            const productData = {
+                name: document.getElementById('p-name').value,
+                typeId: document.getElementById('p-type').value,
+                brand: document.getElementById('p-brand').value,
+                origin: document.getElementById('p-origin').value,
+                price: document.getElementById('p-price').value
+            };
+
+            toggleLoader(true);
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'add_product', data: productData })
+                });
+                const data = await response.json();
+                if(data.status === 'success') {
+                    alert("Thành công! Mã SP: " + data.smartCode);
+                    // Reset form
+                    document.querySelectorAll('#section-products input').forEach(i => i.value = "");
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) {
+                alert("Lỗi khi lưu sản phẩm");
+            }
+            toggleLoader(false);
+        }
+
+        function logout() {
+            currentUser = null;
+            showPage('page-login');
         }
     </script>
 </body>
