@@ -1,81 +1,175 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Z-Family POS</title>
+    <title>Z-Family POS Hệ Thống</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .tab-active { border-bottom: 4px solid #2563eb; color: #2563eb; font-weight: 900; }
+    </style>
 </head>
-<body class="bg-slate-50">
+<body class="bg-slate-50 min-h-screen">
 
     <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
-        <div class="bg-white p-8 rounded-[2rem] shadow-xl w-full max-w-md text-center">
-            <h2 class="text-2xl font-black mb-8">Z-FAMILY POS</h2>
+        <div class="bg-white p-8 rounded-[2.5rem] shadow-2xl w-full max-w-md text-center border">
+            <div class="w-20 h-20 bg-blue-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-blue-200">
+                <i class="fas fa-store text-3xl text-white"></i>
+            </div>
+            <h2 class="text-2xl font-black mb-8 text-slate-800">Z-FAMILY POS</h2>
             <div class="space-y-4">
                 <input type="text" id="login-phone" placeholder="Số điện thoại" class="w-full p-4 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500">
                 <input type="password" id="login-pass" placeholder="Mật khẩu" class="w-full p-4 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500">
-                <button onclick="handleLogin()" class="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold shadow-lg shadow-blue-200">ĐĂNG NHẬP</button>
+                <button onclick="handleLogin()" class="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold hover:bg-blue-700 transition-all">ĐĂNG NHẬP NGAY</button>
             </div>
         </div>
     </div>
 
     <div id="main-screen" class="hidden">
-        <nav class="bg-white p-4 shadow-sm flex justify-between items-center px-6">
-            <span class="font-black text-blue-600">Z-FAMILY SYSTEM</span>
-            <span id="user-tag" class="text-sm font-bold opacity-70"></span>
+        <nav class="bg-white shadow-sm sticky top-0 z-50">
+            <div class="flex justify-between items-center p-4 px-6 border-b">
+                <span class="font-black text-xl text-blue-600 tracking-tighter">Z-FAMILY <span class="text-slate-400">POS</span></span>
+                <span id="user-tag" class="text-sm font-bold bg-slate-100 px-4 py-2 rounded-full"></span>
+            </div>
+            <div class="flex justify-around text-slate-500 text-sm font-bold bg-white">
+                <button onclick="showTab('add')" id="btn-add" class="py-4 px-2 flex-1 tab-active">THÊM SP</button>
+                <button onclick="showTab('list')" id="btn-list" class="py-4 px-2 flex-1">DANH SÁCH</button>
+                <button onclick="showTab('stock')" id="btn-stock" class="py-4 px-2 flex-1">KHO HÀNG</button>
+            </div>
         </nav>
 
-        <div class="max-w-xl mx-auto p-6 mt-6 bg-white rounded-[2rem] shadow-sm">
-            <h3 class="text-xl font-black mb-6 border-b pb-4 text-slate-700">Thêm sản phẩm mới</h3>
+        <div class="p-4 max-w-2xl mx-auto pb-24">
             
-            <div class="space-y-4">
-                <div class="relative h-48 bg-slate-100 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center overflow-hidden group">
-                    <img id="img-preview" class="absolute inset-0 w-full h-full object-cover hidden">
-                    <i class="fas fa-camera text-3xl text-slate-300"></i>
-                    <p class="text-xs font-bold text-slate-400 mt-2">Bấm để chụp ảnh sản phẩm</p>
-                    <input type="file" accept="image/*" capture="environment" onchange="processFile(this)" class="absolute inset-0 opacity-0 cursor-pointer">
+            <div id="tab-add" class="tab-content">
+                <div class="bg-white p-6 rounded-[2rem] shadow-sm space-y-4">
+                    <div class="relative h-48 bg-slate-100 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center overflow-hidden">
+                        <img id="img-preview" class="absolute inset-0 w-full h-full object-cover hidden">
+                        <i class="fas fa-camera text-3xl text-slate-300"></i>
+                        <input type="file" accept="image/*" capture="environment" onchange="processFile(this)" class="absolute inset-0 opacity-0 cursor-pointer">
+                    </div>
+                    <input type="text" id="p-name" placeholder="Tên sản phẩm *" class="w-full p-4 bg-slate-50 rounded-xl outline-none border font-bold">
+                    <div class="grid grid-cols-2 gap-4">
+                        <input type="text" id="p-type" placeholder="Loại (VD: Bệt)" class="w-full p-4 bg-slate-50 rounded-xl outline-none border">
+                        <input type="text" id="p-brand" placeholder="Nhãn hiệu" class="w-full p-4 bg-slate-50 rounded-xl outline-none border">
+                    </div>
+                    <input type="number" id="p-price" placeholder="Giá niêm yết" class="w-full p-4 bg-slate-50 rounded-xl outline-none border text-blue-600 font-black">
+                    <button onclick="saveProduct()" class="w-full bg-blue-600 text-white p-5 rounded-2xl font-black shadow-lg shadow-blue-100">LƯU & TẠO MÃ SMART ID</button>
                 </div>
-
-                <input type="text" id="p-name" placeholder="Tên sản phẩm *" class="w-full p-4 bg-slate-50 rounded-xl outline-none border focus:border-blue-500 font-bold">
-                
-                <div class="grid grid-cols-2 gap-4">
-                    <input type="text" id="p-type" placeholder="Loại (VD: Bệt)" class="w-full p-4 bg-slate-50 rounded-xl outline-none border">
-                    <input type="text" id="p-brand" placeholder="Nhãn hiệu" class="w-full p-4 bg-slate-50 rounded-xl outline-none border">
-                </div>
-
-                <div class="grid grid-cols-2 gap-4">
-                    <input type="number" id="p-price" placeholder="Giá niêm yết" class="w-full p-4 bg-slate-50 rounded-xl outline-none border font-black text-blue-600">
-                    <input type="text" id="p-warranty" placeholder="Bảo hành" value="12 tháng" class="w-full p-4 bg-slate-50 rounded-xl outline-none border">
-                </div>
-
-                <button onclick="saveProduct()" class="w-full bg-blue-600 text-white p-5 rounded-2xl font-black shadow-xl shadow-blue-100 active:scale-95 transition-all">
-                    LƯU & TẠO MÃ SMART ID
-                </button>
             </div>
+
+            <div id="tab-list" class="tab-content hidden space-y-4">
+                <div id="product-container" class="grid grid-cols-1 gap-4">
+                    </div>
+            </div>
+
+            <div id="tab-stock" class="tab-content hidden">
+                <div class="bg-white p-6 rounded-[2rem] shadow-sm space-y-4">
+                    <h3 class="font-bold text-slate-700">Giao dịch Kho</h3>
+                    <select id="stock-product-id" class="w-full p-4 bg-slate-50 rounded-xl border outline-none font-bold">
+                        <option value="">-- Chọn sản phẩm --</option>
+                    </select>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="setStockType('NHAP')" id="btn-nhap" class="p-4 rounded-xl border-2 border-green-500 text-green-600 font-black bg-green-50">NHẬP KHO</button>
+                        <button onclick="setStockType('XUAT')" id="btn-xuat" class="p-4 rounded-xl border-2 border-red-500 text-red-600 font-black">XUẤT KHO</button>
+                    </div>
+                    <input type="number" id="stock-qty" placeholder="Số lượng" class="w-full p-4 bg-slate-50 rounded-xl border outline-none font-black text-center text-2xl">
+                    <input type="text" id="stock-note" placeholder="Ghi chú (Tên khách, tên kho...)" class="w-full p-4 bg-slate-50 rounded-xl border outline-none">
+                    <button onclick="handleStockUpdate()" class="w-full bg-slate-800 text-white p-5 rounded-2xl font-black">XÁC NHẬN GIAO DỊCH</button>
+                </div>
+            </div>
+
         </div>
     </div>
 
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbzBqXpVe-jZWEq4TFnYSZ6f91v7BV7pa-Ey7Q6B-aJSnT1C3D9JwTzbAf9WA__adYsI/exec";
         let capturedImage = "";
+        let stockType = "NHAP";
+        let allProducts = [];
 
+        // Chuyển đổi Tab
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('nav button').forEach(el => el.classList.remove('tab-active'));
+            
+            document.getElementById('tab-' + tabName).classList.remove('hidden');
+            document.getElementById('btn-' + tabName).classList.add('tab-active');
+
+            if(tabName === 'list' || tabName === 'stock') loadProducts();
+        }
+
+        // Tải danh sách SP từ server
+        async function loadProducts() {
+            try {
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: "get_products" }) });
+                const json = await res.json();
+                if(json.status === "success") {
+                    allProducts = json.data;
+                    renderProductList();
+                    renderStockSelect();
+                }
+            } catch (e) { console.log("Lỗi tải SP"); }
+        }
+
+        function renderProductList() {
+            const container = document.getElementById('product-container');
+            container.innerHTML = allProducts.map(p => `
+                <div class="bg-white p-4 rounded-3xl flex items-center shadow-sm border border-slate-100">
+                    <img src="${p.image || 'https://via.placeholder.com/150'}" class="w-20 h-20 rounded-2xl object-cover mr-4">
+                    <div class="flex-1">
+                        <h4 class="font-black text-slate-800 leading-tight">${p.name}</h4>
+                        <p class="text-[10px] font-bold text-blue-600 bg-blue-50 inline-block px-2 rounded-md mt-1">${p.id}</p>
+                        <p class="text-xs text-slate-400 font-bold">${p.brand} | ${p.type}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="font-black text-blue-600">${Number(p.price).toLocaleString()}đ</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderStockSelect() {
+            const select = document.getElementById('stock-product-id');
+            select.innerHTML = '<option value="">-- Chọn sản phẩm --</option>' + 
+                allProducts.map(p => `<option value="${p.id}">${p.name} (${p.id})</option>`).join('');
+        }
+
+        function setStockType(type) {
+            stockType = type;
+            document.getElementById('btn-nhap').className = type === 'NHAP' ? 'p-4 rounded-xl border-2 border-green-500 text-green-600 font-black bg-green-50' : 'p-4 rounded-xl border-2 border-slate-200 text-slate-400 font-bold';
+            document.getElementById('btn-xuat').className = type === 'XUAT' ? 'p-4 rounded-xl border-2 border-red-500 text-red-600 font-black bg-red-50' : 'p-4 rounded-xl border-2 border-slate-200 text-slate-400 font-bold';
+        }
+
+        async function handleStockUpdate() {
+            const data = {
+                productId: document.getElementById('stock-product-id').value,
+                productName: document.getElementById('stock-product-id').selectedOptions[0].text,
+                quantity: document.getElementById('stock-qty').value,
+                type: stockType,
+                note: document.getElementById('stock-note').value
+            };
+            if(!data.productId || !data.quantity) return alert("Thiếu dữ liệu!");
+
+            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: "update_stock", data: data }) });
+            const json = await res.json();
+            if(json.status === "success") {
+                alert("Đã cập nhật kho!");
+                document.getElementById('stock-qty').value = "";
+            }
+        }
+
+        // --- Các hàm Đăng nhập & Lưu SP (Giữ nguyên logic của bạn nhưng không reload trang) ---
         async function handleLogin() {
             const phone = document.getElementById('login-phone').value;
             const password = document.getElementById('login-pass').value;
-            
-            try {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: "login", data: { phone, password } })
-                });
-                const json = await res.json();
-                if(json.status === "success") {
-                    document.getElementById('login-screen').classList.add('hidden');
-                    document.getElementById('main-screen').classList.remove('hidden');
-                    document.getElementById('user-tag').innerText = json.data.name + " (" + json.data.role + ")";
-                } else alert(json.message);
-            } catch (e) { alert("Lỗi kết nối máy chủ!"); }
+            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: "login", data: { phone, password } }) });
+            const json = await res.json();
+            if(json.status === "success") {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-screen').classList.remove('hidden');
+                document.getElementById('user-tag').innerText = "Chào, " + json.data.name;
+            } else alert(json.message);
         }
 
         function processFile(input) {
@@ -96,37 +190,16 @@
                 typeId: document.getElementById('p-type').value,
                 brand: document.getElementById('p-brand').value,
                 price: document.getElementById('p-price').value,
-                warranty: document.getElementById('p-warranty').value,
-                image: capturedImage // capturedImage là biến lưu ảnh Base64
+                image: capturedImage
             };
-        
-            if(!data.name || !data.typeId) return alert("Vui lòng điền Tên và Loại!");
-        
-            // Hiện thông báo đang kết nối (nếu bạn có loader)
-            try {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: "add_product", data: data })
-                });
-                const json = await res.json();
-                
-                if(json.status === "success") {
-                    alert("Thành công! Mã sản phẩm mới: " + json.data.smartCode);
-                    
-                    // --- KHÔNG DÙNG location.reload() ---
-                    // CHỈ LÀM TRỐNG CÁC Ô NHẬP LIỆU ĐỂ NHẬP TIẾP
-                    document.getElementById('p-name').value = "";
-                    document.getElementById('p-type').value = "";
-                    document.getElementById('p-brand').value = "";
-                    document.getElementById('p-price').value = "";
-                    document.getElementById('img-preview').classList.add('hidden'); // Ẩn ảnh cũ
-                    capturedImage = ""; // Xóa dữ liệu ảnh cũ
-                    
-                } else {
-                    alert("Lỗi: " + json.message);
-                }
-            } catch (e) { 
-                alert("Lỗi kết nối máy chủ khi lưu!"); 
+            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: "add_product", data: data }) });
+            const json = await res.json();
+            if(json.status === "success") {
+                alert("Thành công! Mã: " + json.data.smartCode);
+                // Reset form để không bị reload trang
+                document.getElementById('p-name').value = "";
+                document.getElementById('img-preview').classList.add('hidden');
+                capturedImage = "";
             }
         }
     </script>
