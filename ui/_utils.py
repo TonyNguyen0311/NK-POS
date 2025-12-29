@@ -3,7 +3,7 @@ import streamlit as st
 def set_wide_layout():
     st.set_page_config(layout="wide")
 
-def money_fmt(value):
+def format_vnd(value):
     return f"{value:,.0f} đ"
 
 def show_toast(message, type='success'):
