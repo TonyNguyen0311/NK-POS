@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from ui._utils import format_vnd
 
-def render():
+def render_product_page():
     st.title("📦 Quản lý Sản phẩm")
     
     prod_mgr = st.session_state.product_mgr
