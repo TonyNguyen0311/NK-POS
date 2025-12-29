@@ -63,7 +63,7 @@ def main():
 
     # Điều hướng
     if choice == "Sản phẩm":
-        products_page.render()
+        products_page.render()   # <--- Dòng quan trọng này
     elif choice == "Bán hàng (POS)":
         st.info("Module POS đang xây dựng...")
     else:
