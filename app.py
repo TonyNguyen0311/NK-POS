@@ -1,5 +1,5 @@
 import streamlit as st
-from config.firebase_config import FirebaseClient
+from managers.firebase_client import FirebaseClient
 
 # Import các managers
 from managers.auth_manager import AuthManager
@@ -12,9 +12,9 @@ from managers.report_manager import ReportManager # MỚI
 
 # Import các trang UI
 from ui.login_page import render_login
-from ui.product_page import render_product_page
-from ui.branch_page import render_branch_page
-from ui.inventory_page import render_inventory_page
+from ui.products_page import render_product_page
+# from ui.branch_page import render_branch_page
+# from ui.inventory_page import render_inventory_page
 from ui.pos_page import render_pos_page
 from ui.report_page import render_report_page # MỚI
 
@@ -23,7 +23,7 @@ st.set_page_config(layout="wide")
 def main():
     # --- KHỞI TẠO --- 
     if 'firebase_client' not in st.session_state:
-        st.session_state.firebase_client = FirebaseClient()
+        st.session_state.firebase_client = FirebaseClient(st.secrets["firebase_service_account"])
     
     if 'auth_mgr' not in st.session_state:
         st.session_state.auth_mgr = AuthManager(st.session_state.firebase_client)
@@ -77,10 +77,10 @@ def main():
             render_report_page()
         elif page == "Quản lý Sản phẩm":
             render_product_page()
-        elif page == "Quản lý Chi nhánh":
-            render_branch_page()
-        elif page == "Quản lý Kho":
-            render_inventory_page()
+        # elif page == "Quản lý Chi nhánh":
+        #     render_branch_page()
+        # elif page == "Quản lý Kho":
+        #     render_inventory_page()
         # Các trang khác sẽ được thêm sau
         
         if st.sidebar.button("Đăng xuất"):
