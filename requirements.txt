@@ -2,3 +2,4 @@ streamlit
 google-cloud-firestore
 pandas
 firebase-admin
+bcrypt
