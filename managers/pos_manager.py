@@ -1,5 +1,4 @@
 from google.cloud import firestore
-from google.cloud.firestore import FieldValue
 from datetime import datetime
 import uuid
 
