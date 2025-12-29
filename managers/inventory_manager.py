@@ -1,4 +1,4 @@
-from google.cloud.firestore import FieldValue
+from google.cloud import firestore
 from datetime import datetime
 
 class InventoryManager:
@@ -39,7 +39,7 @@ class InventoryManager:
         doc_ref = self.collection.document(doc_id)
         
         update_data = {
-            'stock_quantity': FieldValue.increment(delta),
+            'stock_quantity': firestore.FieldValue.increment(delta),
             'last_updated': datetime.now().isoformat(),
             'sku': sku, # Ghi lại để dễ truy vấn
             'branch_id': branch_id # Ghi lại để dễ truy vấn
