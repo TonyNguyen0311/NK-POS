@@ -11,7 +11,7 @@ from managers.product_manager import ProductManager
 from ui import login_page, products_page
 
 # 1. SETUP PAGE
-st.set_page_config(page_title="S-POS System", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="NK-POS System", page_icon="🛒", layout="wide")
 
 st.markdown("""
 <style>
