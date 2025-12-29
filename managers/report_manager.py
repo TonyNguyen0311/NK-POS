@@ -29,7 +29,7 @@ class ReportManager:
             query = query.where('branch_id', '==', branch_id)
         
         query = query.where('created_at', '>=', start_date.isoformat())
-                     .where('created_at', '<=', end_date.isoformat())
+        query = query.where('created_at', '<=', end_date.isoformat())
 
         orders = query.stream()
 
