@@ -4,7 +4,7 @@ from managers.firebase_client import FirebaseClient
 
 # 1. Cấu hình trang (Phải gọi đầu tiên)
 st.set_page_config(
-    page_title="S-POS System",
+    page_title="NK-POS System",
     page_icon="🛒",
     layout="wide"
 )
