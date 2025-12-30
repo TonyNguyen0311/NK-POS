@@ -3,6 +3,7 @@ from datetime import datetime
 import streamlit as st
 from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
+from google.cloud.firestore_v1.base_query import And, FieldFilter
 
 class ProductManager:
     def __init__(self, firebase_client):
@@ -12,6 +13,7 @@ class ProductManager:
         self.cat_col = self.db.collection('categories')
         self.unit_col = self.db.collection('units')
 
+    # ... (các hàm khác giữ nguyên)
     # --- XỬ LÝ ẢNH ---
     def upload_image(self, file_obj, filename):
         if not self.bucket: return None
@@ -116,11 +118,13 @@ class ProductManager:
     def get_listed_products_for_branch(self, branch_id: str):
         """
         Lấy danh sách các sản phẩm được niêm yết (có giá và active) cho một chi nhánh cụ thể.
-        Đây là hàm để sử dụng trên trang POS.
         """
-        # SỬA LỖI LẦN 2: Truyền trực tiếp FieldPath vào .where() mà không cần bọc bởi FieldFilter
-        field_path = FieldPath("price_by_branch", branch_id, "active")
-        query = self.collection.where("active", "==", True).where(field_path, "==", True)
+        # SỬA LỖI LẦN 3: Sử dụng bộ lọc AND tổng hợp để đảm bảo truy vấn đúng cú pháp.
+        composite_filter = And([
+            FieldFilter("active", "==", True),
+            FieldFilter(FieldPath("price_by_branch", branch_id, "active"), "==", True)
+        ])
+        query = self.collection.where(filter=composite_filter)
         
         results = []
         for doc in query.stream():
