@@ -30,20 +30,21 @@ from ui.user_management_page import render_user_management_page
 from ui.product_catalog_page import render_product_catalog_page
 from ui.business_products_page import render_business_products_page
 from ui.stock_transfer_page import show_stock_transfer_page
-from ui.cost_allocation_page import render_cost_allocation_page # New import
+from ui.cost_allocation_page import render_cost_allocation_page
+from ui.pnl_report_page import render_pnl_report_page # New import
 
 st.set_page_config(layout="wide")
 
 # --- MENU PERMISSIONS ---
 MENU_PERMISSIONS = {
     "admin": [
-        "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
+        "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Danh mục Sản phẩm", 
-        "Danh mục Chi phí", "Phân bổ Chi phí", # Added
+        "Danh mục Chi phí", "Phân bổ Chi phí",
         "Quản lý Khuyến mãi", "Quản lý Người dùng", "Quản trị Hệ thống",
     ],
     "manager": [
-        "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
+        "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
     ],
     "staff": ["Bán hàng (POS)", "Ghi nhận Chi phí"]
@@ -52,7 +53,8 @@ MENU_PERMISSIONS = {
 # --- NEW MENU STRUCTURE ---
 MENU_STRUCTURE = {
     "📈 Nghiệp vụ": [
-        "Bán hàng (POS)", 
+        "Bán hàng (POS)",
+        "Báo cáo P&L", # Added
         "Báo cáo & Phân tích",
         "Ghi nhận Chi phí"
     ],
@@ -64,7 +66,7 @@ MENU_STRUCTURE = {
     ],
     "⚙️ Thiết lập": [
         "Danh mục Chi phí",
-        "Phân bổ Chi phí", # Added
+        "Phân bổ Chi phí",
         "Quản lý Khuyến mãi"
     ],
     "🔑 Quản trị": [
@@ -147,12 +149,13 @@ def main():
 
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
+        "Báo cáo P&L": lambda: render_pnl_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Báo cáo & Phân tích": lambda: render_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Quản lý Kho": lambda: render_inventory_page(st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Luân chuyển Kho": lambda: show_stock_transfer_page(st.session_state.branch_mgr, st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.auth_mgr),
         "Ghi nhận Chi phí": lambda: render_cost_entry_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Danh mục Chi phí": lambda: render_cost_group_page(st.session_state.cost_mgr),
-        "Phân bổ Chi phí": lambda: render_cost_allocation_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr), # Added
+        "Phân bổ Chi phí": lambda: render_cost_allocation_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Quản lý Khuyến mãi": lambda: render_promotions_page(st.session_state.promotion_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
         "Quản lý Người dùng": lambda: render_user_management_page(st.session_state.auth_mgr, st.session_state.branch_mgr),
         "Quản trị Hệ thống": lambda: render_settings_page(st.session_state.settings_mgr, st.session_state.auth_mgr),
