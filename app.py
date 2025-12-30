@@ -1,7 +1,6 @@
 
 import streamlit as st
 import json
-import os
 from managers.firebase_client import FirebaseClient
 
 # Import managers
@@ -12,7 +11,6 @@ from managers.inventory_manager import InventoryManager
 from managers.customer_manager import CustomerManager
 from managers.pos_manager import POSManager
 from managers.report_manager import ReportManager
-from managers.session_manager import is_session_active
 from managers.settings_manager import SettingsManager
 from managers.promotion_manager import PromotionManager
 from managers.cost_manager import CostManager
@@ -32,29 +30,18 @@ from ui.business_products_page import render_business_products_page
 
 st.set_page_config(layout="wide")
 
-# --- ĐỊNH NGHĨA QUYỀN TRUY CẬP MENU ---
+# --- MENU PERMISSIONS ---
 MENU_PERMISSIONS = {
     "admin": [
-        "Báo cáo & Phân tích",
-        "Bán hàng (POS)",
-        "Sản phẩm Kinh doanh",
-        "Quản lý Kho",
-        "Quản lý Chi phí",
-        "Danh mục Sản phẩm",
-        "Quản lý Khuyến mãi",
-        "Quản lý Người dùng",
-        "Quản trị Hệ thống",
+        "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
+        "Quản lý Kho", "Quản lý Chi phí", "Danh mục Sản phẩm",
+        "Quản lý Khuyến mãi", "Quản lý Người dùng", "Quản trị Hệ thống",
     ],
     "manager": [
-        "Báo cáo & Phân tích",
-        "Bán hàng (POS)",
-        "Sản phẩm Kinh doanh",
-        "Quản lý Kho",
-        "Quản lý Chi phí",
+        "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
+        "Quản lý Kho", "Quản lý Chi phí",
     ],
-    "staff": [
-        "Bán hàng (POS)",
-    ]
+    "staff": ["Bán hàng (POS)"]
 }
 
 def init_managers():
@@ -70,6 +57,7 @@ def init_managers():
             return False
     fb_client = st.session_state.firebase_client
     if 'auth_mgr' not in st.session_state: st.session_state.auth_mgr = AuthManager(fb_client)
+    # ... (rest of the managers initialization is the same)
     if 'branch_mgr' not in st.session_state: st.session_state.branch_mgr = BranchManager(fb_client)
     if 'product_mgr' not in st.session_state: st.session_state.product_mgr = ProductManager(fb_client)
     if 'inventory_mgr' not in st.session_state: st.session_state.inventory_mgr = InventoryManager(fb_client)
@@ -103,27 +91,23 @@ def display_sidebar():
         branch_names = [st.session_state.branch_mgr.get_branch_name(b_id) for b_id in branch_ids]
         st.sidebar.write(f"Chi nhánh: **{', '.join(branch_names)}**")
     available_pages = MENU_PERMISSIONS.get(role, [])
-    if not available_pages:
-        st.sidebar.warning("Không có chức năng nào được cấp phép.")
-    ordered_pages = []
-    preferred_order = ["Báo cáo & Phân tích", "Bán hàng (POS)"]
-    for item in preferred_order:
-        if item in available_pages:
-            ordered_pages.append(item)
-            available_pages.remove(item)
-    ordered_pages.extend(available_pages)
-    page = st.sidebar.selectbox("Chức năng", ordered_pages, key="main_menu")
+    page = st.sidebar.selectbox("Chức năng", available_pages, key="main_menu")
     if st.sidebar.button("Đăng xuất"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
+        st.session_state.auth_mgr.logout() # Sử dụng hàm logout mới
     return page
 
 def main():
     if not init_managers():
         return
 
-    if not is_session_active():
+    # Lấy auth_mgr từ session_state sau khi đã khởi tạo
+    auth_mgr = st.session_state.auth_mgr
+
+    # Cố gắng xác thực lại từ cookie TRƯỚC khi hiển thị trang login
+    auth_mgr.check_cookie_and_re_auth()
+
+    # Kiểm tra xem người dùng đã đăng nhập hay chưa
+    if 'user' not in st.session_state or st.session_state.user is None:
         render_login()
         return
     

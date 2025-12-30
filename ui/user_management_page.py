@@ -11,7 +11,6 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
 
     user_info = auth_mgr.get_current_user_info()
 
-    # Chỉ admin mới được truy cập trang này
     if not user_info or user_info.get('role', '').lower() != 'admin':
         st.error("Truy cập bị từ chối. Chức năng này chỉ dành cho Quản trị viên.")
         return
@@ -23,7 +22,6 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
         return
 
     all_users = auth_mgr.list_users()
-    is_admin = user_info.get('role', '').lower() == 'admin'
 
     tab1, tab2 = st.tabs(["Danh sách Người dùng", "Thêm Người dùng mới"])
 
@@ -40,6 +38,10 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
                 is_self = (uid == user_info.get('uid'))
 
                 with st.expander(f"{user.get('display_name', 'N/A')} (`{user.get('username', 'N/A')}`) - Vai trò: {user.get('role', 'N/A').upper()}"):
+                    
+                    if is_self:
+                        st.info("Bạn không thể tự thay đổi vai trò hoặc trạng thái hoạt động của chính mình.")
+
                     with st.form(f"form_edit_{uid}"):
                         c1, c2 = st.columns(2)
                         with c1:
@@ -53,11 +55,8 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
                             except ValueError:
                                 role_index = 0
 
-                            # Chỉ Admin mới có quyền thay đổi vai trò và không thể tự đổi vai trò của mình
-                            new_role = st.selectbox("Vai trò", options=role_options, index=role_index, key=f"role_{uid}", disabled=not is_admin or is_self)
-                            
-                            # Chỉ Admin mới có quyền thay đổi trạng thái và không thể tự hủy
-                            new_active_status = st.checkbox("Đang hoạt động", value=user.get('active', True), key=f"active_{uid}", disabled=not is_admin or is_self)
+                            new_role = st.selectbox("Vai trò", options=role_options, index=role_index, key=f"role_{uid}", disabled=is_self)
+                            new_active_status = st.checkbox("Đang hoạt động", value=user.get('active', True), key=f"active_{uid}", disabled=is_self)
                         
                         with c2:
                             new_password = st.text_input("Mật khẩu mới (để trống nếu không đổi)", type="password", key=f"pass_{uid}")
@@ -65,14 +64,13 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
                             valid_defaults = [b_id for b_id in default_branches if b_id in all_branches_map]
 
                             if new_role != 'admin':
-                                # Chỉ Admin mới có quyền gán chi nhánh và không thể tự gán cho mình (vì admin có mọi quyền)
                                 assigned_branches = st.multiselect(
                                     "Các chi nhánh được gán",
                                     options=list(all_branches_map.keys()),
                                     format_func=lambda x: all_branches_map.get(x, "Chi nhánh không xác định"),
                                     default=valid_defaults,
                                     key=f"branch_{uid}",
-                                    disabled=not is_admin or is_self
+                                    disabled=is_self
                                 )
                             else:
                                 assigned_branches = []
@@ -81,9 +79,10 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
                         if st.form_submit_button("Lưu thay đổi"):
                             update_data = {
                                 "display_name": new_display_name,
-                                "role": new_role,
+                                # Nếu là is_self, vai trò không được gửi đi, giữ nguyên giá trị cũ
+                                "role": current_role if is_self else new_role,
                                 "branch_ids": assigned_branches,
-                                "active": new_active_status,
+                                "active": user.get('active', True) if is_self else new_active_status,
                             }
                             try:
                                 auth_mgr.update_user_record(uid, update_data, new_password)
@@ -93,6 +92,7 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
                                 st.error(f"Lỗi khi cập nhật: {e}")
 
     with tab2:
+        # ... (phần code của tab2 không thay đổi)
         st.subheader("Tạo tài khoản người dùng mới")
         with st.form("form_create_user", clear_on_submit=True):
             c1, c2 = st.columns(2)
