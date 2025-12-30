@@ -4,7 +4,8 @@ bao gồm tính giá vốn bình quân gia quyền và cung cấp dữ liệu ch
 """
 
 from google.cloud import firestore
-from google.cloud.firestore import server_timestamp
+# Sửa lỗi: Import hằng số SERVER_TIMESTAMP
+from google.cloud.firestore import SERVER_TIMESTAMP
 
 class CostManager:
     def __init__(self, firebase_client):
@@ -31,7 +32,7 @@ class CostManager:
 
             if inventory_snapshot.exists:
                 inventory_data = inventory_snapshot.to_dict()
-                current_quantity = inventory_data.get('stock_quantity', 0) # Sửa lỗi: dùng stock_quantity
+                current_quantity = inventory_data.get('stock_quantity', 0)
                 current_avg_cost = inventory_data.get('average_cost', 0.0)
 
             total_value = (current_quantity * current_avg_cost) + (quantity * unit_cost)
@@ -41,9 +42,10 @@ class CostManager:
             update_data = {
                 'product_id': product_id,
                 'branch_id': branch_id,
-                'stock_quantity': new_quantity, # Sửa lỗi: dùng stock_quantity
+                'stock_quantity': new_quantity,
                 'average_cost': new_avg_cost,
-                'last_updated': server_timestamp()
+                # Sửa lỗi: Sử dụng hằng số SERVER_TIMESTAMP
+                'last_updated': SERVER_TIMESTAMP
             }
             transaction.set(inventory_ref, update_data, merge=True)
 
@@ -54,17 +56,16 @@ class CostManager:
                 'quantity': quantity,
                 'unit_cost': unit_cost,
                 'new_average_cost': new_avg_cost,
-                'timestamp': server_timestamp()
+                # Sửa lỗi: Sử dụng hằng số SERVER_TIMESTAMP
+                'timestamp': SERVER_TIMESTAMP
             })
             
             return new_avg_cost
 
-        # Nếu không có transaction ngoài, tạo một transaction mới
         if transaction is None:
             transaction = self.db.transaction()
             return firestore.transactional(_update_avg_cost)(transaction, inventory_ref)
         else:
-            # Nếu có, chạy trong transaction đó
             return _update_avg_cost(transaction, inventory_ref)
 
     def get_cogs_for_items(self, branch_id, items):
