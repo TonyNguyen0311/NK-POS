@@ -45,49 +45,61 @@ MENU_PERMISSIONS = {
     "staff": ["Bán hàng (POS)"]
 }
 
+# --- NEW MENU STRUCTURE ---
+MENU_STRUCTURE = {
+    "📈 Nghiệp vụ": [
+        "Bán hàng (POS)", 
+        "Báo cáo & Phân tích"
+    ],
+    "📦 Hàng hoá": [
+        "Danh mục Sản phẩm", 
+        "Sản phẩm Kinh doanh", 
+        "Quản lý Kho"
+    ],
+    "⚙️ Thiết lập": [
+        "Quản lý Chi phí",
+        "Quản lý Khuyến mãi"
+    ],
+    "🔑 Quản trị": [
+        "Quản lý Người dùng",
+        "Quản trị Hệ thống"
+    ]
+}
+
+
 def init_managers():
     """
     Initializes all manager classes and stores them in the session state.
     This function ensures all managers are ready before any other UI logic runs.
     """
-    # Step 1: Initialize Firebase Client (if not already done)
     if 'firebase_client' not in st.session_state:
         try:
-            if "firebase" not in st.secrets or "credentials_json" not in st.secrets.firebase or "pyrebase_config" not in st.secrets.firebase:
-                st.error("Lỗi cấu hình: Không tìm thấy Firebase secrets trong Streamlit. Vui lòng kiểm tra lại tệp secrets.toml của bạn.")
-                st.stop()
-
             creds_dict = json.loads(st.secrets["firebase"]["credentials_json"])
             pyrebase_config_dict = json.loads(st.secrets["firebase"]["pyrebase_config"])
             st.session_state.firebase_client = FirebaseClient(creds_dict, pyrebase_config_dict)
-        except (json.JSONDecodeError, KeyError) as e:
-            st.error(f"Lỗi phân tích cấu hình Firebase: {e}. Vui lòng kiểm tra lại định dạng JSON trong secrets.")
+        except Exception as e:
+            st.error(f"Lỗi cấu hình Firebase. Vui lòng kiểm tra lại file secrets.toml: {e}")
             st.stop()
 
     fb_client = st.session_state.firebase_client
 
-    # Step 2: Initialize all managers in the correct order of dependency
-    # These managers have no dependencies on other managers
-    if 'auth_mgr' not in st.session_state:
-        st.session_state.auth_mgr = AuthManager(fb_client)
-    if 'branch_mgr' not in st.session_state:
-        st.session_state.branch_mgr = BranchManager(fb_client)
-    if 'product_mgr' not in st.session_state:
-        st.session_state.product_mgr = ProductManager(fb_client)
-    if 'inventory_mgr' not in st.session_state:
-        st.session_state.inventory_mgr = InventoryManager(fb_client)
-    if 'customer_mgr' not in st.session_state:
-        st.session_state.customer_mgr = CustomerManager(fb_client)
-    if 'settings_mgr' not in st.session_state:
-        st.session_state.settings_mgr = SettingsManager(fb_client)
-    if 'promotion_mgr' not in st.session_state:
-        st.session_state.promotion_mgr = PromotionManager(fb_client)
-    if 'cost_mgr' not in st.session_state:
-        st.session_state.cost_mgr = CostManager(fb_client)
-    if 'price_mgr' not in st.session_state:
-        st.session_state.price_mgr = PriceManager(fb_client)
-    
-    # These managers depend on others, so they are initialized last.
+    # Initialize managers if they don't exist in session state
+    managers_to_init = {
+        'auth_mgr': AuthManager,
+        'branch_mgr': BranchManager,
+        'product_mgr': ProductManager,
+        'inventory_mgr': InventoryManager,
+        'customer_mgr': CustomerManager,
+        'settings_mgr': SettingsManager,
+        'promotion_mgr': PromotionManager,
+        'cost_mgr': CostManager,
+        'price_mgr': PriceManager,
+    }
+    for mgr_name, mgr_class in managers_to_init.items():
+        if mgr_name not in st.session_state:
+            st.session_state[mgr_name] = mgr_class(fb_client)
+
+    # Initialize managers with dependencies
     if 'report_mgr' not in st.session_state:
         st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
         
@@ -113,15 +125,35 @@ def display_sidebar():
     elif branch_ids:
         branch_names = [st.session_state.branch_mgr.get_branch_name(b_id) for b_id in branch_ids]
         st.sidebar.write(f"Chi nhánh: **{', '.join(branch_names)}**")
+
+    # --- Build hierarchical menu ---
+    user_allowed_pages = MENU_PERMISSIONS.get(role, [])
+    display_options = []
+    display_to_page_map = {}
+
+    for category, pages in MENU_STRUCTURE.items():
+        # Check if user has access to any page in this category
+        pages_in_category = [p for p in pages if p in user_allowed_pages]
+        if pages_in_category:
+            for page in pages_in_category:
+                display_name = f"{category} > {page}"
+                display_options.append(display_name)
+                display_to_page_map[display_name] = page
     
-    available_pages = MENU_PERMISSIONS.get(role, [])
-    page = st.sidebar.selectbox("Chức năng", available_pages, key="main_menu")
+    if not display_options:
+        st.sidebar.warning("Tài khoản của bạn chưa được cấp quyền truy cập chức năng nào.")
+        return None
+
+    selected_display_name = st.sidebar.selectbox("Chức năng", display_options, key="main_menu")
     
-    if st.sidebar.button("Đăng xuất"):
+    st.sidebar.divider()
+    if st.sidebar.button("Đăng xuất", use_container_width=True):
         st.session_state.auth_mgr.logout()
+        st.rerun()
         
-    st.sidebar.caption(f"Phiên bản: {int(datetime.now().timestamp())}")
-    return page
+    st.sidebar.caption(f"Phiên bản: {datetime.now().strftime('%Y%m%d.%H%M')}")
+    
+    return display_to_page_map.get(selected_display_name)
 
 def main():
     if not init_managers():
@@ -136,6 +168,11 @@ def main():
         return
     
     page = display_sidebar()
+
+    # If no page is selected or available, do nothing.
+    if not page:
+        st.info("Vui lòng chọn một chức năng từ thanh công cụ bên trái.")
+        return
 
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
