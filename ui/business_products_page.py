@@ -22,7 +22,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
         return
 
     user_branches = user_info.get('branch_ids', [])
-    all_branches_map = {b['id']: b['name'] for b in branch_mgr.get_branches()}
+    all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches(active_only=False)}
     allowed_branches_map = {branch_id: all_branches_map[branch_id] for branch_id in user_branches if branch_id in all_branches_map}
     if user_role == 'admin':
         allowed_branches_map = all_branches_map
@@ -125,4 +125,3 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
                                 st.rerun()
                             else:
                                 st.error("Giá mới phải lớn hơn 0.")
-
