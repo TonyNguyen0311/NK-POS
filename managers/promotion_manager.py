@@ -1,3 +1,4 @@
+
 import streamlit as st
 from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud import firestore
@@ -29,7 +30,9 @@ class PromotionManager:
 
         if active_programs:
             # Return the first (and only) document's data
-            return active_programs[0].to_dict()
+            program = active_programs[0].to_dict()
+            program['id'] = active_programs[0].id # Thêm ID để tham chiếu
+            return program
         
         return None
 
@@ -149,3 +152,39 @@ class PromotionManager:
             })
 
         return simulation_results
+
+    # --------------------------------------------------------------------------
+    # HÀM TIỆN ÍCH CHO POS
+    # --------------------------------------------------------------------------
+
+    def is_item_eligible_for_program(self, item: dict, program: dict) -> bool:
+        """
+        Checks if a single cart item is eligible for the given promotion program.
+        """
+        if not program or not item:
+            return False
+
+        scope = program.get('scope', {})
+        scope_type = scope.get('type')
+        scope_ids = scope.get('ids', [])
+
+        if scope_type == 'ALL':
+            return True
+        elif scope_type == 'PRODUCT' and item.get('sku') in scope_ids:
+            return True
+        elif scope_type == 'CATEGORY' and item.get('category_id') in scope_ids:
+            return True
+        
+        return False
+
+    def is_manual_discount_allowed(self, program: dict) -> bool:
+        """
+
+        Checks if the program allows for any manual discount.
+        """
+        if not program:
+            return False
+        
+        limit_value = program.get('rules', {}).get('manual_extra_limit', {}).get('value', 0)
+        
+        return limit_value > 0

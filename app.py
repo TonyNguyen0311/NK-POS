@@ -42,26 +42,30 @@ def main():
             return
 
     # Initialize managers
-    managers = {
-        'auth_mgr': AuthManager,
-        'branch_mgr': BranchManager,
-        'product_mgr': ProductManager,
-        'inventory_mgr': InventoryManager,
-        'customer_mgr': CustomerManager,
-        'report_mgr': ReportManager,
-        'settings_mgr': SettingsManager,
-        'promotion_mgr': PromotionManager
-    }
-    for mgr_name, mgr_class in managers.items():
-        if mgr_name not in st.session_state:
-            st.session_state[mgr_name] = mgr_class(st.session_state.firebase_client)
+    if 'auth_mgr' not in st.session_state:
+        st.session_state.auth_mgr = AuthManager(st.session_state.firebase_client)
+    if 'branch_mgr' not in st.session_state:
+        st.session_state.branch_mgr = BranchManager(st.session_state.firebase_client)
+    if 'product_mgr' not in st.session_state:
+        st.session_state.product_mgr = ProductManager(st.session_state.firebase_client)
+    if 'inventory_mgr' not in st.session_state:
+        st.session_state.inventory_mgr = InventoryManager(st.session_state.firebase_client)
+    if 'customer_mgr' not in st.session_state:
+        st.session_state.customer_mgr = CustomerManager(st.session_state.firebase_client)
+    if 'report_mgr' not in st.session_state:
+        st.session_state.report_mgr = ReportManager(st.session_state.firebase_client)
+    if 'settings_mgr' not in st.session_state:
+        st.session_state.settings_mgr = SettingsManager(st.session_state.firebase_client)
+    if 'promotion_mgr' not in st.session_state:
+        st.session_state.promotion_mgr = PromotionManager(st.session_state.firebase_client)
 
+    # POSManager depends on other managers, so it's initialized last
     if 'pos_mgr' not in st.session_state:
         st.session_state.pos_mgr = POSManager(
-            st.session_state.firebase_client,
-            st.session_state.inventory_mgr,
-            st.session_state.customer_mgr,
-            None
+            firebase_client=st.session_state.firebase_client,
+            inventory_mgr=st.session_state.inventory_mgr,
+            customer_mgr=st.session_state.customer_mgr,
+            promotion_mgr=st.session_state.promotion_mgr # Correctly passing the promotion manager
         )
     
     # Check and initialize database collections if needed

@@ -1,168 +1,207 @@
+
 import streamlit as st
-import pandas as pd
 from datetime import datetime
 
 def render_pos_page():
     st.header("🛒 Bán hàng (POS)")
 
-    # Lấy các manager và thông tin cần thiết
+    # 1. LẤY CÁC MANAGER VÀ THÔNG TIN CẦN THIẾT
     product_mgr = st.session_state.product_mgr
     customer_mgr = st.session_state.customer_mgr
     inventory_mgr = st.session_state.inventory_mgr
     pos_mgr = st.session_state.pos_mgr
     promotion_mgr = st.session_state.promotion_mgr
-    current_branch_id = st.session_state.user['branch_id']
+    current_user = st.session_state.user
+    current_branch_id = current_user['branch_id']
 
-    # ---- KHỞI TẠO STATE ----
-    if 'cart' not in st.session_state:
-        st.session_state.cart = []
-    if 'manual_discount_percent' not in st.session_state:
-        st.session_state.manual_discount_percent = 0
-    
-    # Lấy chương trình khuyến mãi đang hoạt động
-    active_program = promotion_mgr.get_active_price_program()
-    
-    # Lấy quy tắc và phạm vi từ chương trình KM (nếu có)
-    auto_discount_percent = 0
-    manual_discount_limit = 0
-    program_scope = {"type": "NONE", "ids": []}
-    if active_program:
-        auto_discount_percent = active_program.get('rules', {}).get('auto_discount', {}).get('value', 0)
-        manual_discount_limit = active_program.get('rules', {}).get('manual_extra_limit', {}).get('value', 0)
-        program_scope = active_program.get('scope', program_scope)
+    # 2. KHỞI TẠO SESSION STATE CHO GIỎ HÀNG VÀ BỘ LỌC
+    if 'pos_cart' not in st.session_state:
+        st.session_state.pos_cart = {} # Dùng dict để dễ dàng cập nhật/xóa
+    if 'pos_customer' not in st.session_state:
+        st.session_state.pos_customer = "-"
+    if 'pos_search' not in st.session_state:
+        st.session_state.pos_search = ""
+    if 'pos_category' not in st.session_state:
+        st.session_state.pos_category = "ALL"
+    if 'pos_manual_discount' not in st.session_state:
+        st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
 
-    # ---- HÀM KIỂM TRA SẢN PHẨM HỢP LỆ CHO KHUYẾN MÃI ---
-    def is_item_eligible_for_promo(item, scope):
-        if scope['type'] == "ALL":
-            return True
-        if scope['type'] == "PRODUCT" and item['sku'] in scope['ids']:
-            return True
-        if scope['type'] == "CATEGORY" and item['category_id'] in scope['ids']:
-            return True
-        return False
 
-    # ---- TÍNH TOÁN GIỎ HÀNG ----
-    subtotal = 0
-    total_auto_discount = 0
-    cart_items_for_order = []
+    # 3. LẤY DỮ LIỆU GỐC
+    all_products = product_mgr.list_products()
+    all_categories = product_mgr.get_categories()
+    branch_inventory = inventory_mgr.get_inventory_by_branch(current_branch_id)
+    customers = customer_mgr.list_customers()
 
-    for item in st.session_state.cart:
-        original_line_total = item['original_price'] * item['quantity']
-        subtotal += original_line_total
-        line_auto_discount = 0
+    # 4. XỬ LÝ LOGIC GIỎ HÀNG VÀ KHUYẾN MÃI
+    # Hàm này sẽ được gọi mỗi khi giỏ hàng thay đổi
+    cart_state = pos_mgr.calculate_cart_state(
+        cart_items=st.session_state.pos_cart,
+        customer_id=st.session_state.pos_customer,
+        manual_discount_input=st.session_state.pos_manual_discount
+    )
+
+    # 5. THIẾT KẾ BỐ CỤC 2 CỘT
+    col_left, col_right = st.columns([2, 1])
+
+    # =====================================================================================
+    # CỘT TRÁI - THƯ VIỆN SẢN PHẨM
+    # =====================================================================================
+    with col_left:
+        st.subheader("Thư viện Sản phẩm")
+
+        # --- BỘ LỌC ---
+        search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.pos_search)
+        st.session_state.pos_search = search_query
+
+        cat_options = {cat['id']: cat['name'] for cat in all_categories}
+        cat_options["ALL"] = "Tất cả danh mục"
         
-        # Áp dụng giảm giá tự động NẾU sản phẩm hợp lệ
-        if active_program and is_item_eligible_for_promo(item, program_scope):
-            line_auto_discount = original_line_total * (auto_discount_percent / 100)
-            total_auto_discount += line_auto_discount
-
-        # Tạo item cho việc lưu đơn hàng
-        cart_items_for_order.append({
-            "sku": item["sku"],
-            "name": item["name"],
-            "original_price": item['original_price'],
-            "quantity": item["quantity"],
-            "final_price_after_discounts": (original_line_total - line_auto_discount) / item['quantity']
-        })
-
-    # Áp dụng giảm giá thủ công trên tổng đơn
-    total_manual_discount = subtotal * (st.session_state.manual_discount_percent / 100)
-    final_total = subtotal - total_auto_discount - total_manual_discount
-
-    # Cập nhật lại final price trong list items để trừ nốt phần discount thủ công
-    if subtotal > 0:
-        for item in cart_items_for_order:
-            proportional_manual_discount = (item['original_price'] * item['quantity'] / subtotal) * total_manual_discount
-            item['final_price_after_discounts'] -= proportional_manual_discount / item['quantity']
-
-    # ---- GIAO DIỆN ----
-    col1, col2 = st.columns([2, 3])
-
-    with col1:
-        st.subheader("Thông tin đơn hàng")
-        
-        # Hiển thị chương trình khuyến mãi
-        if active_program:
-            st.success(f"🎉 Đang áp dụng: {active_program['name']}")
-        else:
-            st.info("Không có chương trình giá nào đang hoạt động.")
-
-        customers = customer_mgr.list_customers()
-        customer_options = {c['id']: f"{c['name']} - {c['phone']}" for c in customers}
-        customer_options["-"] = "Khách vãng lai"
-        selected_customer_id = st.selectbox("👤 Khách hàng", list(customer_options.keys()), format_func=lambda x: customer_options[x], index=len(customer_options) - 1)
+        selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options[x], key='pos_category')
 
         st.divider()
-        st.subheader("Giỏ hàng")
 
-        if not st.session_state.cart:
+        # --- HIỂN THỊ SẢN PHẨM ---
+        
+        # Áp dụng bộ lọc
+        filtered_products = [p for p in all_products if (search_query.lower() in p['name'].lower() or search_query.lower() in p['sku'].lower())]
+        if selected_cat != "ALL":
+            filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
+
+        if not filtered_products:
+            st.info("Không tìm thấy sản phẩm phù hợp.")
+        else:
+            # Chia thành các cột để hiển thị card
+            product_cols = st.columns(3)
+            col_index = 0
+            for p in filtered_products:
+                with product_cols[col_index]:
+                    stock_quantity = branch_inventory.get(p['sku'], {}).get('stock_quantity', 0)
+                    
+                    # Chỉ hiển thị sản phẩm còn hàng
+                    if stock_quantity > 0:
+                        with st.container(border=True):
+                            st.markdown(f"**{p['name']}**")
+                            st.caption(f"SKU: {p['sku']}")
+                            
+                            price_display = f"{p.get('price_default', 0):,.0f} VNĐ"
+                            st.markdown(f"<div style='text-align: right; color: #2E8B57; font-weight: bold;'>{price_display}</div>", unsafe_allow_html=True)
+
+                            if st.button("➕ Thêm vào giỏ", key=f"add_{p['sku']}", use_container_width=True):
+                                pos_mgr.add_item_to_cart(p, stock_quantity)
+                                st.rerun()
+
+                            st.caption(f"Tồn kho: {stock_quantity}")
+                col_index = (col_index + 1) % 3
+
+    # =====================================================================================
+    # CỘT PHẢI - GIỎ HÀNG & THANH TOÁN
+    # =====================================================================================
+    with col_right:
+        st.subheader("Đơn hàng")
+
+        # --- CHỌN KHÁCH HÀNG ---
+        customer_options = {c['id']: f"{c['name']} - {c['phone']}" for c in customers}
+        customer_options["-"] = "Khách vãng lai"
+        st.selectbox("👤 Khách hàng", options=list(customer_options.keys()), format_func=lambda x: customer_options[x], key='pos_customer')
+
+        st.divider()
+
+        # --- HIỂN THỊ GIỎ HÀNG ---
+        if not cart_state['items']:
             st.info("Giỏ hàng đang trống")
         else:
-            cart_df_display = pd.DataFrame([{"Tên SP": i['name'], "SL": i['quantity'], "Đơn giá": i['original_price']} for i in st.session_state.cart])
-            st.dataframe(cart_df_display, use_container_width=True, hide_index=True)
+            for sku, item in cart_state['items'].items():
+                with st.container(border=True):
+                    col_name, col_qty, col_price = st.columns([3,2,2])
+                    with col_name:
+                        st.markdown(f"**{item['name']}**")
+                        if item['auto_discount_applied'] > 0:
+                            st.markdown(f"<span style='color: green; font-size: 0.9em'>- {item['auto_discount_applied']:,.0f}đ (KM)</span>", unsafe_allow_html=True)
 
-            with st.form("payment_form"):
-                st.number_input("Giảm giá thêm (%)", min_value=0.0, max_value=float(manual_discount_limit), step=1.0, key="manual_discount_percent")
-                st.metric("Tổng tiền hàng", f"{subtotal:,.0f} VNĐ")
-                st.metric("Giảm giá", f"- {total_auto_discount + total_manual_discount:,.0f} VNĐ")
-                st.markdown("###")
-                st.metric("✅ KHÁCH CẦN TRẢ", f"{final_total:,.0f} VNĐ")
-                submitted_payment = st.form_submit_button("💳 THANH TOÁN", use_container_width=True, type="primary")
+                    with col_qty:
+                        # Nút tăng giảm số lượng
+                        qty_col1, qty_col2, qty_col3 = st.columns([1,1,1])
+                        if qty_col1.button("-", key=f"dec_{sku}"):
+                            pos_mgr.update_item_quantity(sku, item['quantity'] - 1)
+                            st.rerun()
+                        qty_col2.write(f"{item['quantity']}")
+                        if qty_col3.button("+", key=f"inc_{sku}"):
+                            if item['quantity'] < item['stock']:
+                                pos_mgr.update_item_quantity(sku, item['quantity'] + 1)
+                                st.rerun()
+                            else:
+                                st.toast("Vượt quá tồn kho!")
 
-            if submitted_payment:
-                # Build order data
-                # ... (logic gửi đơn hàng tương tự như cũ)
-                st.rerun()
+                    with col_price:
+                        st.markdown(f"<div style='text-align: right'>{item['line_total_after_auto_discount']:,.0f}đ</div>", unsafe_allow_html=True)
+                        if item['auto_discount_applied'] > 0:
+                            st.markdown(f"<div style='text-align: right; text-decoration: line-through; color: grey; font-size: 0.8em'>{item['original_line_total']:,.0f}đ</div>", unsafe_allow_html=True)
 
-        if st.session_state.cart and not submitted_payment:
-            if st.button("🗑️ Xóa giỏ hàng", use_container_width=True):
-                st.session_state.cart = []
-                st.session_state.manual_discount_percent = 0
-                st.rerun()
 
-    with col2:
-        st.subheader("Thêm sản phẩm")
-        products = product_mgr.list_products()
-        branch_inventory = inventory_mgr.get_inventory_by_branch(current_branch_id)
+        st.divider()
 
-        product_display_list = [{
-            "sku": p['sku'], 
-            "name": p['name'], 
-            "category_id": p.get('category_id'), # Thêm category_id
-            "price": p.get('price_default', 0),
-            "stock": branch_inventory.get(p['sku'], {}).get('stock_quantity', 0)
-        } for p in products]
-        
-        product_df = pd.DataFrame([p for p in product_display_list if p['stock'] > 0])
-
-        if product_df.empty:
-            st.warning("Tất cả sản phẩm tại chi nhánh này đã hết hàng.")
-            return
-
-        options = [f"{name} | Tồn kho: {stock}" for name, stock in zip(product_df["name"], product_df["stock"])]
-        selected_product_str = st.selectbox("Chọn hoặc tìm sản phẩm", options)
-
-        if selected_product_str:
-            selected_name = selected_product_str.split(' |')[0]
-            selected_row = product_df[product_df['name'] == selected_name].iloc[0]
+        # --- TỔNG KẾT & GIẢM GIÁ THÊM ---
+        if cart_state['items']:
+            st.markdown(f"**Tổng tiền hàng:** <span style='float: right;'>{cart_state['subtotal']:,.0f}đ</span>", unsafe_allow_html=True)
+            if cart_state['total_auto_discount'] > 0:
+                st.markdown(f"**Giảm giá KM:** <span style='float: right; color: green;'>- {cart_state['total_auto_discount']:,.0f}đ</span>", unsafe_allow_html=True)
             
-            col_q, col_b = st.columns([1, 2])
-            quantity = col_q.number_input("Số lượng", 1, int(selected_row['stock']), 1)
+            # --- LOGIC GIẢM GIÁ THÊM ---
+            promo = cart_state['active_promotion']
+            if promo and promo['rules']['manual_extra_limit']['value'] > 0:
+                if st.checkbox("Giảm giá thêm"):
+                    limit = promo['rules']['manual_extra_limit']['value']
+                    help_text = f"Nhân viên được phép giảm thêm tối đa {limit}% trên tổng đơn hàng."
+                    if current_user['role'] != 'ADMIN':
+                        help_text = "Nhập % hoặc số tiền giảm thêm được quản lý cho phép."
+
+                    st.number_input(
+                        "Nhập giảm giá thêm (%)", 
+                        min_value=0.0, 
+                        max_value=100.0, # Tạm thời không giới hạn ở front-end để test logic
+                        step=1.0, 
+                        key="pos_manual_discount_value",
+                        help=help_text
+                    )
+                    # Cập nhật state để tính toán lại
+                    st.session_state.pos_manual_discount['value'] = st.session_state.pos_manual_discount_value
+
+            # Hiển thị giảm giá thêm nếu có
+            if cart_state['total_manual_discount'] > 0:
+                 st.markdown(f"**Giảm giá thêm:** <span style='float: right; color: orange;'>- {cart_state['total_manual_discount']:,.0f}đ</span>", unsafe_allow_html=True)
             
-            if col_b.button("Thêm vào giỏ", use_container_width=True):
-                existing_item = next((item for item in st.session_state.cart if item["sku"] == selected_row["sku"]), None)
-                if existing_item:
-                    new_quantity = existing_item['quantity'] + quantity
-                    if new_quantity > selected_row['stock']:
-                        st.error(f"Vượt quá tồn kho! (Tối đa: {selected_row['stock']})")
-                    else:
-                        existing_item['quantity'] = new_quantity
+            # --- HIỂN THỊ CẢNH BÁO NẾU VƯỢT NGƯỠNG --- 
+            if cart_state['manual_discount_exceeded']:
+                st.warning("Mức giảm thêm vượt quá giới hạn cho phép của chương trình!")
+
+            # --- TỔNG CUỐI CÙNG --- 
+            st.markdown("###")
+            st.markdown(f"### **KHÁCH CẦN TRẢ:** <span style='float: right; color: #D22B2B;'>{cart_state['grand_total']:,.0f}đ</span>", unsafe_allow_html=True)
+
+            # --- NÚT THANH TOÁN --- 
+            if st.button("💳 THANH TOÁN", use_container_width=True, type="primary"):
+                if cart_state['manual_discount_exceeded']:
+                    st.error("Không thể thanh toán. Mức giảm thêm không hợp lệ.")
                 else:
-                    st.session_state.cart.append({
-                        "sku": selected_row["sku"],
-                        "name": selected_row["name"],
-                        "category_id": selected_row["category_id"], # Lưu category_id vào giỏ
-                        "original_price": selected_row["price"],
-                        "quantity": quantity
-                    })
+                    success, message = pos_mgr.create_order(
+                        cart_state=cart_state,
+                        customer_id=st.session_state.pos_customer,
+                        branch_id=current_branch_id,
+                        seller_id=current_user['id']
+                    )
+                    if success:
+                        st.success(f"Tạo đơn hàng thành công! ID: {message}")
+                        # Reset state
+                        del st.session_state.pos_cart
+                        del st.session_state.pos_customer
+                        del st.session_state.pos_manual_discount
+                        st.rerun()
+                    else:
+                        st.error(f"Lỗi khi tạo đơn hàng: {message}")
+
+            # --- NÚT XOÁ GIỎ HÀNG ---
+            if st.button("🗑️ Xóa giỏ hàng", use_container_width=True):
+                pos_mgr.clear_cart()
                 st.rerun()
+
