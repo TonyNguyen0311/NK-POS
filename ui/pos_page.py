@@ -29,7 +29,7 @@ def render_pos_page():
     # 3. LẤY DỮ LIỆU GỐC
     # Thay vì lấy tất cả sản phẩm, ta sẽ lấy sản phẩm theo chi nhánh
     # Đây là một sự thay đổi lớn trong tương lai, hiện tại vẫn dùng list_products
-    all_products = product_mgr.list_master_products()
+    all_products = product_mgr.list_products()
     all_categories = product_mgr.get_categories()
     # Lấy tồn kho cho chi nhánh hiện tại
     branch_inventory = inventory_mgr.get_inventory_by_branch(current_branch_id)
