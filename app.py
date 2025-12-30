@@ -45,19 +45,28 @@ MENU_PERMISSIONS = {
 }
 
 def init_managers():
-    if "firebase" not in st.secrets or "credentials_json" not in st.secrets.firebase:
-        st.error("Firebase secrets not found...")
+    # Kiểm tra secrets cho cả hai cấu hình
+    if "firebase" not in st.secrets or "credentials_json" not in st.secrets.firebase or "pyrebase_config" not in st.secrets.firebase:
+        st.error("Firebase secrets (credentials_json or pyrebase_config) not found...")
         return False
+        
     if 'firebase_client' not in st.session_state:
         try:
+            # Tải cả hai cấu hình từ secrets
             creds_dict = json.loads(st.secrets["firebase"]["credentials_json"])
-            st.session_state.firebase_client = FirebaseClient(creds_dict)
-        except (json.JSONDecodeError, KeyError):
-            st.error("Failed to parse Firebase credentials...")
+            pyrebase_config_dict = json.loads(st.secrets["firebase"]["pyrebase_config"])
+            
+            # Khởi tạo FirebaseClient với cả hai cấu hình
+            st.session_state.firebase_client = FirebaseClient(creds_dict, pyrebase_config_dict)
+            
+        except (json.JSONDecodeError, KeyError) as e:
+            st.error(f"Failed to parse Firebase configurations: {e}")
             return False
+
     fb_client = st.session_state.firebase_client
+    
+    # Khởi tạo các manager như cũ
     if 'auth_mgr' not in st.session_state: st.session_state.auth_mgr = AuthManager(fb_client)
-    # ... (rest of the managers initialization is the same)
     if 'branch_mgr' not in st.session_state: st.session_state.branch_mgr = BranchManager(fb_client)
     if 'product_mgr' not in st.session_state: st.session_state.product_mgr = ProductManager(fb_client)
     if 'inventory_mgr' not in st.session_state: st.session_state.inventory_mgr = InventoryManager(fb_client)
@@ -66,8 +75,10 @@ def init_managers():
     if 'promotion_mgr' not in st.session_state: st.session_state.promotion_mgr = PromotionManager(fb_client)
     if 'cost_mgr' not in st.session_state: st.session_state.cost_mgr = CostManager(fb_client)
     if 'price_mgr' not in st.session_state: st.session_state.price_mgr = PriceManager(fb_client)
+    
     if 'report_mgr' not in st.session_state:
         st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
+        
     if 'pos_mgr' not in st.session_state:
         st.session_state.pos_mgr = POSManager(
             firebase_client=fb_client,
@@ -90,23 +101,22 @@ def display_sidebar():
     elif branch_ids:
         branch_names = [st.session_state.branch_mgr.get_branch_name(b_id) for b_id in branch_ids]
         st.sidebar.write(f"Chi nhánh: **{', '.join(branch_names)}**")
+    
     available_pages = MENU_PERMISSIONS.get(role, [])
     page = st.sidebar.selectbox("Chức năng", available_pages, key="main_menu")
+    
     if st.sidebar.button("Đăng xuất"):
-        st.session_state.auth_mgr.logout() # Sử dụng hàm logout mới
+        st.session_state.auth_mgr.logout()
+        
     return page
 
 def main():
     if not init_managers():
         return
 
-    # Lấy auth_mgr từ session_state sau khi đã khởi tạo
     auth_mgr = st.session_state.auth_mgr
-
-    # Cố gắng xác thực lại từ cookie TRƯỚC khi hiển thị trang login
     auth_mgr.check_cookie_and_re_auth()
 
-    # Kiểm tra xem người dùng đã đăng nhập hay chưa
     if 'user' not in st.session_state or st.session_state.user is None:
         render_login()
         return
