@@ -2,61 +2,70 @@
 import streamlit as st
 from managers.auth_manager import AuthManager
 from managers.branch_manager import BranchManager
+import time
 
 def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
     st.set_page_config(layout="centered")
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.title("🔐 Đăng nhập hệ thống")
+        # Check if any user exists. If not, show the initial setup form.
+        if not auth_mgr.has_users():
+            st.title("🚀 Khởi tạo hệ thống")
+            st.info("Chào mừng bạn đến với NK-POS. Vì đây là lần chạy đầu tiên, chúng ta cần thiết lập một vài thông tin cơ bản.")
 
-        # ======== TẠM THỜI HIỂN THỊ FORM KHỞI TẠO ========
-        st.warning("⚠️ Chế độ thiết lập Admin tạm thời. Vui lòng tạo tài khoản Admin mới.")
-        with st.form("setup_form"):
-            st.subheader("Tạo Tài khoản Admin Mới")
-            adm_user = st.text_input("Username mới", "admin")
-            adm_pass = st.text_input("Password mới (ít nhất 6 ký tự)", type="password")
-            adm_name = st.text_input("Tên hiển thị", "Quản trị viên")
-            
-            submitted = st.form_submit_button("Khởi tạo Admin")
-            
-            if submitted:
-                if len(adm_pass) < 6:
-                    st.error("Mật khẩu phải có ít nhất 6 ký tự.")
-                elif not all([adm_user, adm_pass, adm_name]):
-                    st.error("Vui lòng nhập đủ thông tin cho tài khoản Admin.")
-                else:
-                    try:
-                        # FIX: Admin user does not need a specific branch.
-                        # The role 'admin' grants access to all branches.
-                        user_data = {
-                            "username": adm_user,
-                            "display_name": adm_name,
-                            "role": "admin",
-                            "branch_ids": [] # Empty list for admin
-                        }
-                        auth_mgr.create_user_record(user_data, adm_pass)
-                        st.success(f"🎉 Đã tạo thành công tài khoản admin '{adm_user}'. Vui lòng tải lại trang và đăng nhập bằng form bên dưới.")
-                        st.balloons()
-                    except ValueError as e:
-                        st.error(f"Lỗi: {e}")
-                    except Exception as e:
-                        st.error(f"Đã có lỗi xảy ra khi tạo tài khoản: {e}")
+            with st.form("initial_setup_form"):
+                st.subheader("1. Tạo Chi Nhánh Chính")
+                branch_name = st.text_input("Tên chi nhánh", "Cửa hàng Chính")
+                branch_address = st.text_input("Địa chỉ", "Hà Nội")
+                branch_phone = st.text_input("Số điện thoại", "")
 
-        st.divider()
-        # ==========================================================
+                st.subheader("2. Tạo Tài khoản Quản trị (Admin)")
+                admin_username = st.text_input("Username Admin", "admin")
+                admin_password = st.text_input("Password (ít nhất 6 ký tự)", type="password")
+                admin_display_name = st.text_input("Tên hiển thị", "Quản trị viên")
 
-        # Form đăng nhập bình thường
-        with st.form("login_form"):
-            username = st.text_input("Tên đăng nhập")
-            password = st.text_input("Mật khẩu", type="password")
-            
-            login_button = st.form_submit_button("Đăng nhập")
-            
-            if login_button:
-                user = auth_mgr.login(username, password)
-                if user:
-                    st.success("Đăng nhập thành công!")
-                    st.rerun() 
-                else:
-                    st.error("Sai tên đăng nhập hoặc mật khẩu.")
+                submitted = st.form_submit_button("Hoàn tất Thiết lập")
+
+                if submitted:
+                    if len(admin_password) < 6:
+                        st.error("Mật khẩu của Admin phải có ít nhất 6 ký tự.")
+                    elif not all([branch_name, branch_address, admin_username, admin_password, admin_display_name]):
+                        st.error("Vui lòng điền đầy đủ tất cả các trường.")
+                    else:
+                        try:
+                            # 1. Create the main branch
+                            branch_id = branch_mgr.create_branch(branch_name, branch_address, branch_phone)
+
+                            # 2. Create the admin user
+                            admin_data = {
+                                "username": admin_username,
+                                "display_name": admin_display_name,
+                                "role": "admin",
+                                "branch_ids": [] # Admin has access to all branches
+                            }
+                            auth_mgr.create_user_record(admin_data, admin_password)
+
+                            st.success("🎉 Thiết lập ban đầu thành công! Hệ thống sẽ tự tải lại để bạn đăng nhập.")
+                            st.balloons()
+                            time.sleep(3)
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"Đã có lỗi xảy ra trong quá trình thiết lập: {e}")
+
+        else:
+            # If users exist, show the normal login form
+            st.title("🔐 Đăng nhập hệ thống")
+            with st.form("login_form"):
+                username = st.text_input("Tên đăng nhập")
+                password = st.text_input("Mật khẩu", type="password")
+                login_button = st.form_submit_button("Đăng nhập")
+
+                if login_button:
+                    user = auth_mgr.login(username, password)
+                    if user:
+                        st.success("Đăng nhập thành công!")
+                        st.rerun() 
+                    else:
+                        st.error("Sai tên đăng nhập hoặc mật khẩu.")
