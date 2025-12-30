@@ -1,5 +1,7 @@
 import streamlit as st
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud import firestore
+from datetime import datetime, timezone
 
 class PromotionManager:
     """
@@ -8,6 +10,28 @@ class PromotionManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection_ref = self.db.collection('promotions')
+
+    def get_active_price_program(self):
+        """
+        Finds the highest-priority, active price program for the current time.
+        Returns the program data dict or None.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+
+        query = self.collection_ref.where(filter=FieldFilter("promotion_type", "==", "PRICE_PROGRAM")) \
+                                   .where(filter=FieldFilter("is_active", "==", True)) \
+                                   .where(filter=FieldFilter("start_datetime", "<=", now)) \
+                                   .where(filter=FieldFilter("end_datetime", ">=", now)) \
+                                   .order_by("priority", direction=firestore.Query.DESCENDING) \
+                                   .limit(1)
+        
+        active_programs = list(query.stream())
+
+        if active_programs:
+            # Return the first (and only) document's data
+            return active_programs[0].to_dict()
+        
+        return None
 
     def check_and_initialize(self):
         """
