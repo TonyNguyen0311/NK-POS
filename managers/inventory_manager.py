@@ -8,7 +8,7 @@ class InventoryManager:
         self.db = firebase_client.db
         # --- Collections ---
         self.inventory_col = self.db.collection('inventory')
-        self.transfers_col = self.db.collection('goods_transfers')
+        self.transfers_col = self.db.collection('stock_transfers')
         # Collection để ghi lại lịch sử mỗi lần thay đổi tồn kho
         self.adjustments_col = self.db.collection('inventory_adjustments')
 
@@ -118,7 +118,7 @@ class InventoryManager:
         self._receive_stock_transaction(transaction, sku, branch_id, quantity, user_id, notes, cost_price, supplier)
 
     # --------------------------------------------------------------------------
-    # SECTION 2: CÁC HÀM TRUY VẤN (giữ nguyên và bổ sung)
+    # SECTION 2: CÁC HÀM TRUY VẤN
     # --------------------------------------------------------------------------
     def get_stock_quantity(self, sku: str, branch_id: str) -> int:
         """Lấy số lượng tồn kho thực tế của một sản phẩm tại một chi nhánh."""
@@ -131,11 +131,9 @@ class InventoryManager:
     def get_inventory_by_branch(self, branch_id: str) -> dict:
         """Lấy toàn bộ thông tin tồn kho của một chi nhánh, trả về dict với key là SKU."""
         docs = self.inventory_col.where('branch_id', '==', branch_id).stream()
-        # Bổ sung thông tin ngưỡng tồn kho
         inventory_data = {}
         for doc in docs:
             data = doc.to_dict()
-            # Giả định ngưỡng tồn kho được lưu cùng document, sẽ thêm ở bước sau
             data['low_stock_threshold'] = data.get('low_stock_threshold', 10) 
             inventory_data[data['sku']] = data
         return inventory_data
@@ -153,3 +151,195 @@ class InventoryManager:
             query = query.where("timestamp", "<=", end_date.isoformat())
             
         return [doc.to_dict() for doc in query.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()]
+
+    # --------------------------------------------------------------------------
+    # SECTION 3: QUẢN LÝ LUÂN CHUYỂN HÀNG HÓA (STOCK TRANSFER)
+    # --------------------------------------------------------------------------
+    def create_transfer(self, from_branch_id, to_branch_id, items, user_id, notes=""):
+        """
+        Tạo một phiếu yêu cầu luân chuyển hàng hóa.
+        items: list of dicts, mỗi dict chứa {'sku': str, 'quantity': int}
+        """
+        transfer_id = f"TRF-{uuid.uuid4().hex[:10].upper()}"
+        self.transfers_col.document(transfer_id).set({
+            "id": transfer_id,
+            "from_branch_id": from_branch_id,
+            "to_branch_id": to_branch_id,
+            "items": items,
+            "created_by": user_id,
+            "created_at": datetime.now().isoformat(),
+            "status": "PENDING",  # PENDING -> SHIPPED -> COMPLETED
+            "history": [{
+                "status": "PENDING",
+                "updated_at": datetime.now().isoformat(),
+                "user_id": user_id
+            }],
+            "notes": notes
+        })
+        return transfer_id
+
+    @firestore.transactional
+    def _ship_transfer_transaction(self, transaction, transfer_id, user_id):
+        """
+        Transaction để xác nhận gửi hàng đi.
+        1. Cập nhật trạng thái phiếu chuyển thành "SHIPPED".
+        2. Trừ tồn kho tại chi nhánh gửi.
+        3. Ghi log vào inventory_adjustments.
+        """
+        transfer_ref = self.transfers_col.document(transfer_id)
+        transfer_doc = transfer_ref.get(transaction=transaction).to_dict()
+
+        if transfer_doc.get('status') != 'PENDING':
+            raise Exception("Chỉ có thể gửi đi các phiếu ở trạng thái PENDING.")
+
+        from_branch = transfer_doc['from_branch_id']
+        items = transfer_doc['items']
+        
+        # Trừ kho và ghi log cho từng sản phẩm
+        for item in items:
+            sku = item['sku']
+            quantity = item['quantity']
+            
+            # Lấy tồn kho hiện tại
+            current_quantity = 0
+            inv_ref = self.inventory_col.document(self._get_doc_id(sku, from_branch))
+            inv_snapshot = inv_ref.get(transaction=transaction)
+            if inv_snapshot.exists:
+                current_quantity = inv_snapshot.to_dict().get('stock_quantity', 0)
+
+            if current_quantity < quantity:
+                raise Exception(f"Tồn kho sản phẩm {sku} không đủ để thực hiện luân chuyển.")
+
+            # 1. Trừ tồn kho chi nhánh gửi
+            self.update_inventory(sku, from_branch, -quantity, transaction)
+
+            # 2. Ghi log
+            adj_id = f"STO-{uuid.uuid4().hex[:8].upper()}" # Stock Transfer Out
+            adj_ref = self.adjustments_col.document(adj_id)
+            transaction.set(adj_ref, {
+                "id": adj_id, "sku": sku, "branch_id": from_branch, "user_id": user_id,
+                "timestamp": datetime.now().isoformat(),
+                "quantity_before": current_quantity,
+                "quantity_after": current_quantity - quantity,
+                "delta": -quantity,
+                "reason": "STOCK_TRANSFER_OUT",
+                "notes": f"Luân chuyển tới chi nhánh {transfer_doc['to_branch_id']} (phiếu {transfer_id})",
+                "related_transfer_id": transfer_id
+            })
+
+        # 3. Cập nhật trạng thái phiếu chuyển
+        transaction.update(transfer_ref, {
+            "status": "SHIPPED",
+            "shipped_at": datetime.now().isoformat(),
+            "shipped_by": user_id,
+            "history": firestore.ArrayUnion([{
+                "status": "SHIPPED",
+                "updated_at": datetime.now().isoformat(),
+                "user_id": user_id
+            }])
+        })
+
+    def ship_transfer(self, transfer_id, user_id):
+        """Hàm public để gọi transaction xác nhận gửi hàng."""
+        transaction = self.db.transaction()
+        self._ship_transfer_transaction(transaction, transfer_id, user_id)
+
+    @firestore.transactional
+    def _receive_transfer_transaction(self, transaction, transfer_id, user_id):
+        """
+        Transaction để xác nhận đã nhận được hàng.
+        1. Cập nhật trạng thái phiếu chuyển thành "COMPLETED".
+        2. Cộng tồn kho tại chi nhánh nhận.
+        3. Ghi log vào inventory_adjustments.
+        """
+        transfer_ref = self.transfers_col.document(transfer_id)
+        transfer_doc = transfer_ref.get(transaction=transaction).to_dict()
+
+        if transfer_doc.get('status') != 'SHIPPED':
+            raise Exception("Chỉ có thể nhận các phiếu đã được gửi đi (trạng thái SHIPPED).")
+
+        to_branch = transfer_doc['to_branch_id']
+        items = transfer_doc['items']
+
+        # Cộng kho và ghi log cho từng sản phẩm
+        for item in items:
+            sku = item['sku']
+            quantity = item['quantity']
+            
+            # Lấy tồn kho hiện tại
+            current_quantity = 0
+            inv_ref = self.inventory_col.document(self._get_doc_id(sku, to_branch))
+            inv_snapshot = inv_ref.get(transaction=transaction)
+            if inv_snapshot.exists:
+                current_quantity = inv_snapshot.to_dict().get('stock_quantity', 0)
+
+            # 1. Cộng tồn kho chi nhánh nhận
+            self.update_inventory(sku, to_branch, quantity, transaction)
+            
+            # 2. Ghi log
+            adj_id = f"STI-{uuid.uuid4().hex[:8].upper()}" # Stock Transfer In
+            adj_ref = self.adjustments_col.document(adj_id)
+            transaction.set(adj_ref, {
+                "id": adj_id, "sku": sku, "branch_id": to_branch, "user_id": user_id,
+                "timestamp": datetime.now().isoformat(),
+                "quantity_before": current_quantity,
+                "quantity_after": current_quantity + quantity,
+                "delta": quantity,
+                "reason": "STOCK_TRANSFER_IN",
+                "notes": f"Nhận hàng từ chi nhánh {transfer_doc['from_branch_id']} (phiếu {transfer_id})",
+                "related_transfer_id": transfer_id
+            })
+
+        # 3. Cập nhật trạng thái phiếu chuyển
+        transaction.update(transfer_ref, {
+            "status": "COMPLETED",
+            "completed_at": datetime.now().isoformat(),
+            "completed_by": user_id,
+            "history": firestore.ArrayUnion([{
+                "status": "COMPLETED",
+                "updated_at": datetime.now().isoformat(),
+                "user_id": user_id
+            }])
+        })
+        
+    def receive_transfer(self, transfer_id, user_id):
+        """Hàm public để gọi transaction xác nhận nhận hàng."""
+        transaction = self.db.transaction()
+        self._receive_transfer_transaction(transaction, transfer_id, user_id)
+
+    def get_transfers(self, branch_id: str, direction: str = 'all', status: str = None, limit=50):
+        """
+        Lấy danh sách các phiếu luân chuyển liên quan đến một chi nhánh.
+        - direction: 'outgoing' (chi nhánh là người gửi), 'incoming' (chi nhánh là người nhận), 'all'
+        - status: 'PENDING', 'SHIPPED', 'COMPLETED'
+        """
+        results = []
+        base_query = self.transfers_col.order_by("created_at", direction=firestore.Query.DESCENDING)
+
+        # Build queries based on direction
+        queries = []
+        if direction == 'outgoing' or direction == 'all':
+            q_out = base_query.where('from_branch_id', '==', branch_id)
+            if status:
+                q_out = q_out.where('status', '==', status)
+            queries.append(q_out)
+        
+        if direction == 'incoming' or direction == 'all':
+            q_in = base_query.where('to_branch_id', '==', branch_id)
+            if status:
+                q_in = q_in.where('status', '==', status)
+            queries.append(q_in)
+
+        # Execute queries and merge results
+        transfer_ids = set()
+        for query in queries:
+            docs = query.limit(limit).stream()
+            for doc in docs:
+                if doc.id not in transfer_ids:
+                    results.append(doc.to_dict())
+                    transfer_ids.add(doc.id)
+        
+        # Sort final results by date again as we merged two queries
+        results.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        return results[:limit]

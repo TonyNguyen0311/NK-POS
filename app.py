@@ -29,6 +29,7 @@ from ui.inventory_page import render_inventory_page
 from ui.user_management_page import render_user_management_page
 from ui.product_catalog_page import render_product_catalog_page
 from ui.business_products_page import render_business_products_page
+from ui.stock_transfer_page import show_stock_transfer_page
 
 st.set_page_config(layout="wide")
 
@@ -37,12 +38,12 @@ st.set_page_config(layout="wide")
 MENU_PERMISSIONS = {
     "admin": [
         "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
-        "Quản lý Kho", "Ghi nhận Chi phí", "Danh mục Sản phẩm", "Danh mục Chi phí",
+        "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Danh mục Sản phẩm", "Danh mục Chi phí",
         "Quản lý Khuyến mãi", "Quản lý Người dùng", "Quản trị Hệ thống",
     ],
     "manager": [
         "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
-        "Quản lý Kho", "Ghi nhận Chi phí",
+        "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
     ],
     # Staff can now record daily costs
     "staff": ["Bán hàng (POS)", "Ghi nhận Chi phí"]
@@ -59,7 +60,8 @@ MENU_STRUCTURE = {
     "📦 Hàng hoá": [
         "Danh mục Sản phẩm", 
         "Sản phẩm Kinh doanh", 
-        "Quản lý Kho"
+        "Quản lý Kho",
+        "Luân chuyển Kho"
     ],
     "⚙️ Thiết lập": [
         "Danh mục Chi phí",
@@ -188,6 +190,7 @@ def main():
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
         "Báo cáo & Phân tích": lambda: render_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Quản lý Kho": lambda: render_inventory_page(st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
+        "Luân chuyển Kho": lambda: show_stock_transfer_page(st.session_state.branch_mgr, st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.auth_mgr),
         "Ghi nhận Chi phí": lambda: render_cost_entry_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Danh mục Chi phí": lambda: render_cost_group_page(st.session_state.cost_mgr),
         "Quản lý Khuyến mãi": lambda: render_promotions_page(st.session_state.promotion_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
