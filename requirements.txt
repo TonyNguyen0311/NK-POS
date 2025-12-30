@@ -4,5 +4,5 @@ firebase-admin
 bcrypt
 pandas
 plotly
-Pyrebase4
+pyrebase3
 setuptools
