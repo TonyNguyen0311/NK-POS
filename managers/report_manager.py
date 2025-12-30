@@ -4,7 +4,6 @@ from google.cloud.firestore import Query
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 
-# Giả định CostManager được truyền vào, vì report_manager cần nó
 from .cost_manager import CostManager 
 
 class ReportManager:
@@ -13,27 +12,31 @@ class ReportManager:
         self.cost_mgr = cost_mgr
         self.orders_collection = self.db.collection('orders')
         self.products_collection = self.db.collection('products')
-        self.cost_entries_collection = self.db.collection('cost_entries') # Thêm collection này
 
     def get_profit_loss_statement(self, start_date: datetime, end_date: datetime, branch_id: str = None):
         """
-        Hàm chính để tạo Báo cáo Kết quả Kinh doanh (P&L) hoàn chỉnh.
-        Bao gồm Doanh thu, Giá vốn, Chi phí hoạt động (có xử lý phân bổ) và Lợi nhuận ròng.
+        Tạo Báo cáo Kết quả Kinh doanh (P&L), bao gồm cả dữ liệu phân tích chi phí.
         """
-        # 1. TÍNH DOANH THU VÀ GIÁ VỐN TỪ ĐƠN HÀNG
+        # 1. TÍNH DOANH THU VÀ GIÁ VỐN
         query = self.orders_collection
-        if branch_id:
-            query = query.where('branch_id', '==', branch_id)
-        
-        query = query.where('created_at', '>=', start_date.isoformat())
-        query = query.where('created_at', '<=', end_date.isoformat())
-        query = query.where('status', '==', 'COMPLETED')
+        branch_ids_for_query = []
 
-        orders = query.stream()
+        # Nếu không có branch_id cụ thể, query tất cả các chi nhánh
+        if branch_id:
+             branch_ids_for_query = [branch_id]
+        # Nếu là admin và xem all, để rỗng để query_cost_entries tự xử lý
+
+        # Query orders
+        order_query = self.orders_collection.where('status', '==', 'COMPLETED')\
+                                       .where('created_at', '>=', start_date.isoformat())\
+                                       .where('created_at', '<=', end_date.isoformat())
+        if branch_id:
+            order_query = order_query.where('branch_id', '==', branch_id)
+
+        orders = order_query.stream()
         total_revenue = 0
         total_cogs = 0
         order_count = 0
-
         for order in orders:
             order_data = order.to_dict()
             total_revenue += order_data.get('grand_total', 0)
@@ -44,42 +47,52 @@ class ReportManager:
 
         # 2. TÍNH CHI PHÍ HOẠT ĐỘNG (OPERATING EXPENSES)
         op_expenses_by_group = {}
+        # === KHỞI TẠO DICTIONARY MỚI ===
+        op_expenses_by_classification = {}
         total_op_expenses = 0
 
+        # Lấy chi phí
         cost_filters = {
             'start_date': start_date.isoformat(),
             'end_date': end_date.isoformat(),
-            'status': 'ACTIVE'
         }
+        # Phân quyền chi nhánh cho chi phí
         if branch_id:
             cost_filters['branch_id'] = branch_id
         
-        # Lấy tất cả chi phí trong kỳ (cần hàm query_cost_entries đã tạo)
         cost_entries = self.cost_mgr.query_cost_entries(filters=cost_filters)
         
-        # Lấy thông tin group để mapping tên
+        # Lấy thông tin nhóm chi phí để mapping tên
         cost_groups_raw = self.cost_mgr.get_cost_groups()
         cost_groups = {g['id']: g['group_name'] for g in cost_groups_raw}
 
         for entry in cost_entries:
-            group_name = cost_groups.get(entry.get('group_id'), "Chưa phân loại")
-            if group_name not in op_expenses_by_group:
-                op_expenses_by_group[group_name] = 0
-
-            # Xử lý logic phân bổ chi phí
+            # Tính toán số tiền chi phí thực tế trong kỳ (xử lý phân bổ)
+            cost_in_period = 0
             if entry.get('is_amortized') and entry.get('amortization_months', 0) > 0:
-                amortized_cost_in_period = self._calculate_amortized_cost_for_period(entry, start_date, end_date)
-                op_expenses_by_group[group_name] += amortized_cost_in_period
-                total_op_expenses += amortized_cost_in_period
-            else:
-                # Chi phí thường, tính toàn bộ
-                op_expenses_by_group[group_name] += entry['amount']
-                total_op_expenses += entry['amount']
+                cost_in_period = self._calculate_amortized_cost_for_period(entry, start_date, end_date)
+            elif not entry.get('is_amortized'): # Chỉ tính chi phí không phân bổ
+                # Đảm bảo chi phí nằm trong khoảng thời gian báo cáo
+                entry_date = datetime.fromisoformat(entry['entry_date']).replace(tzinfo=None)
+                if start_date <= entry_date <= end_date:
+                    cost_in_period = entry['amount']
+            
+            if cost_in_period > 0:
+                total_op_expenses += cost_in_period
+
+                # a. Phân loại theo NHÓM
+                group_name = cost_groups.get(entry.get('group_id'), "Chưa phân loại")
+                op_expenses_by_group[group_name] = op_expenses_by_group.get(group_name, 0) + cost_in_period
+
+                # === b. PHÂN LOẠI THEO CLASSIFICATION ===
+                classification_key = entry.get('classification', 'UNCATEGORIZED')
+                op_expenses_by_classification[classification_key] = op_expenses_by_classification.get(classification_key, 0) + cost_in_period
 
         # 3. TÍNH LỢI NHUẬN RÒNG
         net_profit = gross_profit - total_op_expenses
 
         return {
+            "success": True,
             "start_date": start_date.strftime('%Y-%m-%d'),
             "end_date": end_date.strftime('%Y-%m-%d'),
             "branch_id": branch_id,
@@ -88,45 +101,41 @@ class ReportManager:
             "total_cogs": total_cogs,
             "gross_profit": gross_profit,
             "operating_expenses_by_group": op_expenses_by_group,
+            # === THÊM DỮ LIỆU MỚI VÀO KẾT QUẢ ===
+            "operating_expenses_by_classification": op_expenses_by_classification,
             "total_operating_expenses": total_op_expenses,
             "net_profit": net_profit
         }
 
     def _calculate_amortized_cost_for_period(self, cost_entry, report_start, report_end) -> float:
-        """Hàm nội bộ tính toán chi phí phân bổ cho một kỳ báo cáo cụ thể."""
         try:
             amount = float(cost_entry['amount'])
             months = int(cost_entry['amortization_months'])
-            entry_start_amort_str = cost_entry['start_amortization_date']
-            entry_start_amort = datetime.fromisoformat(entry_start_amort_str).replace(tzinfo=None)
+            # Ngày bắt đầu phân bổ là ngày ghi chi phí
+            entry_date = datetime.fromisoformat(cost_entry['entry_date']).replace(tzinfo=None)
 
-            if months == 0:
+            if months <= 0:
                 return 0
 
             monthly_cost = amount / months
             total_cost_in_period = 0
             
-            # Duyệt qua từng tháng trong chu kỳ phân bổ của chi phí
+            # Duyệt qua từng tháng trong chu kỳ phân bổ
             for i in range(months):
-                current_amort_month_start = (entry_start_amort + relativedelta(months=i)).replace(day=1)
-                current_amort_month_end = current_amort_month_start + relativedelta(months=1) - timedelta(days=1)
+                amortization_month_start = (entry_date + relativedelta(months=i)).replace(day=1)
+                # Nếu tháng phân bổ bắt đầu sau khi báo cáo kết thúc, bỏ qua
+                if amortization_month_start > report_end:
+                    continue
                 
-                # Chỉ tính chi phí nếu tháng phân bổ nằm trong khoảng thời gian của báo cáo
-                # (Kiểm tra sự giao thoa giữa 2 khoảng thời gian)
-                if current_amort_month_start < report_end and current_amort_month_end > report_start:
-                     total_cost_in_period += monthly_cost
+                amortization_month_end = amortization_month_start + relativedelta(months=1) - timedelta(days=1)
+                # Nếu tháng phân bổ kết thúc trước khi báo cáo bắt đầu, bỏ qua
+                if amortization_month_end < report_start:
+                    continue
+
+                # Nếu có giao thoa, tính là chi phí của kỳ này
+                total_cost_in_period += monthly_cost
 
             return total_cost_in_period
         except (ValueError, TypeError, KeyError) as e:
-            # Ghi lại log lỗi sẽ tốt hơn ở đây
-            print(f"Error calculating amortization for entry {cost_entry.get('entry_id')}: {e}")
+            print(f"Error calculating amortization for entry {cost_entry.get('id')}: {e}")
             return 0
-
-    # --- CÁC HÀM BÁO CÁO CŨ (có thể giữ lại hoặc refactor sau) ---
-    def get_revenue_overview(self, branch_id=None, time_range='7d'):
-        # ... (giữ nguyên code cũ)
-        pass
-        
-    def get_best_selling_products(self, branch_id=None, limit=10, time_range='mtd'):
-        # ... (giữ nguyên code cũ)
-        pass
