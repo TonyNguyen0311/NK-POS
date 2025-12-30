@@ -118,9 +118,8 @@ class ProductManager:
     def get_listed_products_for_branch(self, branch_id: str):
         """
         Lấy danh sách các sản phẩm được niêm yết cho một chi nhánh.
-        WORKAROUND: Lọc thủ công trong Python để tránh bug của thư viện Firestore.
+        WORKAROUND: Lọc thủ công trong Python để tránh bug của thư viện và lỗi dữ liệu.
         """
-        # 1. Lấy tất cả sản phẩm đang active
         all_active_products = self.collection.where("active", "==", True).stream()
         
         results = []
@@ -128,9 +127,10 @@ class ProductManager:
             d = doc.to_dict()
             d['sku'] = doc.id
             
-            # 2. Lọc trong Python
             price_info = d.get('price_by_branch', {}).get(branch_id)
-            if price_info and price_info.get('active') is True:
+            
+            # SỬA LỖI DỮ LIỆU: Chỉ xử lý nếu price_info là một dictionary
+            if isinstance(price_info, dict) and price_info.get('active') is True:
                 results.append(d)
                 
         return results
