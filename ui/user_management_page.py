@@ -15,12 +15,10 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
         st.error("Truy cập bị từ chối. Chức năng này chỉ dành cho Quản trị viên.")
         return
 
-    # SỬA LỖI: Gọi đúng tên hàm là list_branches() thay vì get_branches()
     try:
         all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches()}
     except Exception as e:
         st.error(f"Không thể tải danh sách chi nhánh: {e}")
-        # Có thể hiển thị thêm thông tin chi tiết hoặc dừng thực thi tại đây
         return
 
     all_users = auth_mgr.list_users()
@@ -33,9 +31,9 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
             st.info("Chưa có người dùng nào trong hệ thống.")
         else:
             for user in all_users:
-                uid = user.get('uid', user.get('id')) # Tương thích với các bản ghi cũ hơn
+                uid = user.get('uid', user.get('id'))
                 if not uid:
-                    continue # Bỏ qua nếu không có ID
+                    continue
 
                 is_self = (uid == user_info.get('uid'))
 
@@ -43,30 +41,32 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
                     with st.form(f"form_edit_{uid}"):
                         c1, c2 = st.columns(2)
                         with c1:
-                            new_display_name = st.text_input("Tên hiển thị", value=user.get('display_name',''), key=f"name_{uid}")
-                            current_role = user.get('role', 'staff')
+                            new_display_name = st.text_input("Tên hiển thị", value=user.get('display_name', ''), key=f"name_{uid}")
+                            
+                            # SỬA LỖI: Chuẩn hóa vai trò về chữ thường để so sánh không phân biệt hoa/thường
+                            current_role = user.get('role', 'staff').lower()
                             role_options = ['staff', 'manager', 'admin']
+                            
                             try:
                                 role_index = role_options.index(current_role)
                             except ValueError:
-                                role_index = 0 # Mặc định là staff nếu vai trò không hợp lệ
-                            
+                                role_index = 0  # Mặc định là 'staff' nếu vai trò không hợp lệ
+
                             new_role = st.selectbox("Vai trò", options=role_options, index=role_index, key=f"role_{uid}", disabled=is_self)
                             new_active_status = st.checkbox("Đang hoạt động", value=user.get('active', True), key=f"active_{uid}", disabled=is_self)
                         
                         with c2:
                             new_password = st.text_input("Mật khẩu mới (để trống nếu không đổi)", type="password", key=f"pass_{uid}")
                             default_branches = user.get('branch_ids', [])
-                            # Đảm bảo default_branches là một danh sách các ID hợp lệ
                             valid_defaults = [b_id for b_id in default_branches if b_id in all_branches_map]
 
                             if new_role != 'admin':
                                 assigned_branches = st.multiselect(
-                                    "Các chi nhánh được gán", 
-                                    options=list(all_branches_map.keys()), 
-                                    format_func=lambda x: all_branches_map.get(x, "Chi nhánh không xác định"), 
-                                    default=valid_defaults, 
-                                    key=f"branch_{uid}", 
+                                    "Các chi nhánh được gán",
+                                    options=list(all_branches_map.keys()),
+                                    format_func=lambda x: all_branches_map.get(x, "Chi nhánh không xác định"),
+                                    default=valid_defaults,
+                                    key=f"branch_{uid}",
                                     disabled=is_self
                                 )
                             else:
@@ -98,11 +98,11 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
             with c2:
                 create_password = st.text_input("Mật khẩu", type="password", key="create_password_input")
                 if create_role != 'admin':
-                     create_branches = st.multiselect(
-                         "Các chi nhánh được gán", 
-                         options=list(all_branches_map.keys()), 
-                         format_func=lambda x: all_branches_map.get(x, "Chi nhánh không xác định"), 
-                         key="create_branch_multiselect"
+                    create_branches = st.multiselect(
+                        "Các chi nhánh được gán",
+                        options=list(all_branches_map.keys()),
+                        format_func=lambda x: all_branches_map.get(x, "Chi nhánh không xác định"),
+                        key="create_branch_multiselect"
                     )
                 else:
                     create_branches = []
