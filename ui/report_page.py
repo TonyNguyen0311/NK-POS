@@ -1,123 +1,114 @@
+
 import streamlit as st
 import pandas as pd
-import altair as alt
+from datetime import datetime, timedelta
 
-def render_report_page():
-    st.header("📊 Báo cáo hiệu suất")
+# Import managers
+from managers.report_manager import ReportManager
+from managers.branch_manager import BranchManager
+from managers.auth_manager import AuthManager
 
-    # Lấy manager và thông tin user
-    report_mgr = st.session_state.report_mgr
-    user_info = st.session_state.user
-    user_role = user_info['role']
-    user_branch_id = user_info['branch_id']
-    branch_mgr = st.session_state.branch_mgr
+def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
+    st.header("Báo cáo & Phân tích Kinh doanh")
 
-    # ---- 1. Bộ lọc chung ----
-    st.info("Lưu ý: Dữ liệu báo cáo được tổng hợp định kỳ và có thể có độ trễ nhất định.")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        time_range_option = st.selectbox(
-            "Khoảng thời gian",
-            options=['7d', '30d', 'mtd', 'ytd'],
-            format_func=lambda x: {'7d': '7 ngày qua', '30d': '30 ngày qua', 'mtd': 'Tháng này', 'ytd': 'Năm nay'}[x],
-            key="report_time_range"
-        )
-    
-    with col2:
-        if user_role == 'ADMIN':
-            branches = branch_mgr.list_branches()
-            branch_options = {b['id']: b['name'] for b in branches}
-            branch_options["all"] = "Tất cả chi nhánh"
-            
-            selected_branch_id = st.selectbox(
-                "Chi nhánh",
-                options=list(branch_options.keys()),
-                format_func=lambda x: branch_options[x],
-                index=len(branch_options) - 1, 
-                key="report_branch_select"
+    user_info = auth_mgr.get_current_user_info()
+    if not user_info:
+        st.error("Vui lòng đăng nhập để xem báo cáo.")
+        return
+
+    # --- LOGIC PHÂN QUYỀN VÀ LỌC DỮ LIỆU ---
+    user_role = user_info.get('role', 'staff')
+    user_branches = user_info.get('branch_ids', [])
+
+    all_branches_map = {b['id']: b['name'] for b in branch_mgr.get_branches()}
+    allowed_branches_map = {}
+
+    if user_role == 'admin':
+        allowed_branches_map = all_branches_map
+        allowed_branches_map['all'] = "Toàn bộ chuỗi"
+        default_branch_selection = 'all'
+    else: # manager hoặc staff
+        if not user_branches:
+            st.warning("Tài khoản của bạn chưa được gán vào chi nhánh nào. Vui lòng liên hệ Admin.")
+            return
+        allowed_branches_map = {branch_id: all_branches_map[branch_id] for branch_id in user_branches if branch_id in all_branches_map}
+        default_branch_selection = user_branches[0]
+
+    # --- BỘ LỌC CHUNG ---
+    st.write("**Tùy chọn lọc:**")
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        # Chỉ hiển thị ô chọn nếu người dùng có quyền xem nhiều hơn 1 chi nhánh
+        if len(allowed_branches_map) > 1 or user_role == 'admin':
+            selected_branch = st.selectbox(
+                "Chọn chi nhánh",
+                options=list(allowed_branches_map.keys()),
+                format_func=lambda x: allowed_branches_map[x],
+                index=list(allowed_branches_map.keys()).index(default_branch_selection)
             )
-            report_branch_id = selected_branch_id if selected_branch_id != 'all' else None
         else:
-            report_branch_id = user_branch_id
-            st.write(f"**Chi nhánh:** {branch_mgr.get_branch(user_branch_id)['name']}")
+            # Tự động chọn chi nhánh duy nhất được phép
+            selected_branch = default_branch_selection
+            st.text_input("Chi nhánh", value=allowed_branches_map[selected_branch], disabled=True)
+
+    with c2:
+        start_date = st.date_input("Từ ngày", datetime.now() - timedelta(days=30))
+    with c3:
+        end_date = st.date_input("Đến ngày", datetime.now())
+
+    start_datetime = datetime.combine(start_date, datetime.min.time())
+    end_datetime = datetime.combine(end_date, datetime.max.time())
 
     st.divider()
 
-    # ---- 2. Tải và hiển thị dữ liệu dựa trên vai trò ----
+    # --- HIỂN THỊ BÁO CÁO LÃI/LỖ ---
+    if st.button("Xem Báo cáo", type="primary"):
+        branch_id_for_query = None if selected_branch == 'all' else selected_branch
 
-    # ==========================================================
-    # GIAO DIỆN DÀNH CHO ADMIN (CÓ DỮ LIỆU LỢI NHUẬN)
-    # ==========================================================
-    if user_role == 'ADMIN':
-        with st.spinner("Đang tải báo cáo tài chính chi tiết..."):
-            pnl_data = report_mgr.get_profit_and_loss_overview(report_branch_id, time_range_option)
-            best_sellers_data = report_mgr.get_best_selling_products(report_branch_id, limit=10, time_range=time_range_option)
+        with st.spinner("Đang tổng hợp và tính toán dữ liệu..."):
+            pnl_data = report_mgr.get_profit_loss_statement(start_datetime, end_datetime, branch_id_for_query)
 
-        st.subheader("Báo cáo Lợi nhuận Gộp")
-        
-        if not pnl_data['order_count'] > 0:
-            st.warning("Không có dữ liệu trong khoảng thời gian đã chọn.")
-        else:
-            # Các chỉ số KPI chính
+            if not pnl_data:
+                st.error("Không thể tải được dữ liệu báo cáo cho lựa chọn này.")
+                return
+
+            st.subheader(f"Báo cáo Kết quả Kinh doanh")
+            st.caption(f"Từ {pnl_data['start_date']} đến {pnl_data['end_date']} cho: **{allowed_branches_map[selected_branch]}**")
+
+            # ... (Phần còn lại của trang hiển thị số liệu không thay đổi) ...
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Tổng Doanh thu", f"{pnl_data['total_revenue']:,.0f} VNĐ")
-            kpi2.metric("Tổng Giá vốn", f"{pnl_data['total_cogs']:,.0f} VNĐ")
-            kpi3.metric("Lợi nhuận gộp", f"{pnl_data['total_gross_profit']:,.0f} VNĐ", 
-                        delta=f"{pnl_data['profit_margin']:.1f}% Margin")
-            kpi4.metric("Tổng số đơn hàng", f"{pnl_data['order_count']}")
-            
-            # Chuẩn bị dữ liệu cho biểu đồ
-            df_chart = pnl_data['daily_data_df'].copy()
-            df_chart.reset_index(inplace=True)
-            df_chart.rename(columns={'index': 'Ngày'}, inplace=True)
-            
-            # Biến đổi từ wide-format sang long-format
-            df_long = df_chart.melt('Ngày', var_name='Chỉ số', value_name='Giá trị')
-            df_long['Chỉ số'] = df_long['Chỉ số'].map({'revenue':'Doanh thu', 'cogs':'Giá vốn', 'profit':'Lợi nhuận'}).fillna(df_long['Chỉ số'])
+            kpi1.metric("Tổng Doanh thu", f"{pnl_data['total_revenue']:,.0f} đ")
+            kpi2.metric("Lợi nhuận gộp", f"{pnl_data['gross_profit']:,.0f} đ")
+            kpi3.metric("Tổng Chi phí HĐ", f"{pnl_data['total_operating_expenses']:,.0f} đ")
+            kpi4.metric("LỢI NHUẬN RÒNG", f"{pnl_data['net_profit']:,.0f} đ", delta_color="inverse")
 
-
-            # Vẽ biểu đồ bằng Altair
-            chart = alt.Chart(df_long[df_long['Chỉ số'].isin(['Doanh thu', 'Giá vốn', 'Lợi nhuận'])]).mark_line(point=True).encode(
-                x=alt.X('Ngày:T', title='Ngày'),
-                y=alt.Y('Giá trị:Q', title='Số tiền (VNĐ)'),
-                color=alt.Color('Chỉ số:N', title='Chỉ số', 
-                                scale=alt.Scale(domain=['Doanh thu', 'Giá vốn', 'Lợi nhuận'],
-                                                range=['#1f77b4', '#ff7f0e', '#2ca02c'])),
-                tooltip=['Ngày', 'Chỉ số', alt.Tooltip('Giá trị:Q', format=',.0f')]
-            ).interactive()
-
-            st.altair_chart(chart, use_container_width=True)
-
-    # ==========================================================
-    # GIAO DIỆN DÀNH CHO STAFF (CHỈ DOANH THU)
-    # ==========================================================
-    else:
-        with st.spinner("Đang tải báo cáo doanh thu..."):
-            revenue_data = report_mgr.get_revenue_overview(report_branch_id, time_range_option)
-            best_sellers_data = report_mgr.get_best_selling_products(report_branch_id, limit=10, time_range=time_range_option)
-
-        st.subheader("Tổng quan Doanh thu")
-        if not revenue_data['order_count'] > 0:
-            st.warning("Không có dữ liệu doanh thu trong khoảng thời gian đã chọn.")
-        else:
-            kpi1, kpi2, kpi3 = st.columns(3)
-            kpi1.metric("Tổng doanh thu", f"{revenue_data['total_revenue']:,.0f} VNĐ")
-            kpi2.metric("Tổng số đơn hàng", f"{revenue_data['order_count']}")
-            avg_revenue = revenue_data['total_revenue'] / revenue_data['order_count'] if revenue_data['order_count'] > 0 else 0
-            kpi3.metric("Doanh thu trung bình/đơn", f"{avg_revenue:,.0f} VNĐ")
-
-            # Biểu đồ doanh thu theo ngày
-            if not revenue_data['daily_revenue_df'].empty:
-                st.line_chart(revenue_data['daily_revenue_df'].set_index('date'))
-
-    # ---- Báo cáo chung cho tất cả các vai trò ----
-    st.divider()
-    st.subheader("Top 10 Sản phẩm bán chạy")
-    if not best_sellers_data:
-        st.warning("Không có dữ liệu về sản phẩm bán chạy.")
-    else:
-        bestseller_df = pd.DataFrame(best_sellers_data)
-        bestseller_df.columns = ["SKU", "Tên Sản phẩm", "Số lượng đã bán"]
-        st.dataframe(bestseller_df, use_container_width=True, hide_index=True)
+            with st.expander("Xem chi tiết tính toán Lợi nhuận ròng", expanded=True):
+                pnl_df = pd.DataFrame([
+                    {"Chỉ tiêu": "1. Tổng Doanh thu", "Số tiền": pnl_data['total_revenue']},
+                    {"Chỉ tiêu": "2. Giá vốn hàng bán (COGS)", "Số tiền": -pnl_data['total_cogs']},
+                    {"Chỉ tiêu": "**3. Lợi nhuận gộp**", "Số tiền": pnl_data['gross_profit']},
+                    {"Chỉ tiêu": "", "Số tiền": None},
+                    {"Chỉ tiêu": "**4. Chi phí hoạt động**", "Số tiền": None},
+                ])
+                op_expenses_df = pd.DataFrame([
+                    {"Chỉ tiêu": f"   - {group_name}", "Số tiền": -amount}
+                    for group_name, amount in pnl_data.get('operating_expenses_by_group', {}).items()
+                ])
+                pnl_df = pd.concat([pnl_df, op_expenses_df], ignore_index=True)
+                pnl_df = pd.concat([
+                    pnl_df,
+                    pd.DataFrame([
+                        {"Chỉ tiêu": "**Tổng chi phí hoạt động**", "Số tiền": -pnl_data['total_operating_expenses']},
+                        {"Chỉ tiêu": "", "Số tiền": None},
+                        {"Chỉ tiêu": "**5. LỢI NHUẬN RÒNG**", "Số tiền": pnl_data['net_profit']},
+                    ])
+                ], ignore_index=True)
+                st.dataframe(
+                    pnl_df.style.format(
+                        {"Số tiền": "{:,.0f} đ"},
+                        na_rep=""
+                    ).apply(lambda x: ['font-weight: bold' if '**' in str(val) else '' for val in x], axis=1),
+                    use_container_width=True,
+                    hide_index=True
+                )

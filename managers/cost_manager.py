@@ -1,86 +1,129 @@
-"""
-Module này chịu trách nhiệm xử lý tất cả logic liên quan đến chi phí sản phẩm,
-bao gồm tính giá vốn bình quân gia quyền và cung cấp dữ liệu chi phí cho báo cáo.
-"""
 
+import uuid
+from datetime import datetime
 from google.cloud import firestore
-# Sửa lỗi: Import hằng số SERVER_TIMESTAMP
-from google.cloud.firestore import SERVER_TIMESTAMP
 
 class CostManager:
     def __init__(self, firebase_client):
-        """
-        Khởi tạo CostManager với một đối tượng FirebaseClient đã được khởi tạo.
-        
-        Args:
-            firebase_client: Một instance của lớp FirebaseClient.
-        """
         self.db = firebase_client.db
+        self.bucket = firebase_client.bucket
+        self.group_col = self.db.collection('cost_groups')
+        self.entry_col = self.db.collection('cost_entries')
 
-    def record_shipment_and_update_avg_cost(self, product_id, branch_id, quantity, unit_cost, transaction=None):
-        """
-        Ghi nhận một lô hàng mới và tính toán lại giá vốn bình quân gia quyền.
-        Hàm này nên được gọi bên trong một transaction lớn hơn nếu có.
-        """
-        inventory_ref = self.db.collection('branch_inventory').document(f"{branch_id}_{product_id}")
+    # --- COST GROUPS (NHÓM CHI PHÍ) ---
+    def create_cost_group(self, group_name):
+        """Tạo một nhóm chi phí mới."""
+        group_id = f"CG-{uuid.uuid4().hex[:6].upper()}"
+        data = {"group_id": group_id, "group_name": group_name}
+        self.group_col.document(group_id).set(data)
+        return data
 
-        def _update_avg_cost(transaction, inventory_ref):
-            inventory_snapshot = inventory_ref.get(transaction=transaction)
-            
-            current_quantity = 0
-            current_avg_cost = 0.0
+    def get_cost_groups(self):
+        """Lấy danh sách tất cả các nhóm chi phí."""
+        groups = []
+        for doc in self.group_col.stream():
+            data = doc.to_dict()
+            data['id'] = doc.id
+            groups.append(data)
+        return groups
+    
+    def update_cost_group(self, group_id, updates):
+        """Cập nhật thông tin nhóm chi phí."""
+        self.group_col.document(group_id).update(updates)
 
-            if inventory_snapshot.exists:
-                inventory_data = inventory_snapshot.to_dict()
-                current_quantity = inventory_data.get('stock_quantity', 0)
-                current_avg_cost = inventory_data.get('average_cost', 0.0)
+    def delete_cost_group(self, group_id):
+        """Xóa một nhóm chi phí."""
+        self.group_col.document(group_id).delete()
 
-            total_value = (current_quantity * current_avg_cost) + (quantity * unit_cost)
-            new_quantity = current_quantity + quantity
-            new_avg_cost = total_value / new_quantity if new_quantity > 0 else 0
-
-            update_data = {
-                'product_id': product_id,
-                'branch_id': branch_id,
-                'stock_quantity': new_quantity,
-                'average_cost': new_avg_cost,
-                # Sửa lỗi: Sử dụng hằng số SERVER_TIMESTAMP
-                'last_updated': SERVER_TIMESTAMP
-            }
-            transaction.set(inventory_ref, update_data, merge=True)
-
-            log_ref = self.db.collection('shipment_logs').document()
-            transaction.set(log_ref, {
-                'product_id': product_id,
-                'branch_id': branch_id,
-                'quantity': quantity,
-                'unit_cost': unit_cost,
-                'new_average_cost': new_avg_cost,
-                # Sửa lỗi: Sử dụng hằng số SERVER_TIMESTAMP
-                'timestamp': SERVER_TIMESTAMP
-            })
-            
-            return new_avg_cost
-
-        if transaction is None:
-            transaction = self.db.transaction()
-            return firestore.transactional(_update_avg_cost)(transaction, inventory_ref)
-        else:
-            return _update_avg_cost(transaction, inventory_ref)
-
-    def get_cogs_for_items(self, branch_id, items):
-        """
-        Lấy tổng Giá vốn hàng bán (COGS) cho một danh sách các mặt hàng đã bán.
-        """
-        total_cogs = 0.0
-        for item in items:
-            product_id = item['product_id']
-            quantity = item['quantity']
-            inventory_ref = self.db.collection('branch_inventory').document(f"{branch_id}_{product_id}")
-            inventory_doc = inventory_ref.get()
-
-            if inventory_doc.exists:
-                avg_cost = inventory_doc.to_dict().get('average_cost', 0.0)
-                total_cogs += avg_cost * quantity
+    # --- COST ENTRIES (BẢN GHI CHI PHÍ) ---
+    def create_cost_entry(self, entry_data):
+        """Tạo một bản ghi chi phí mới."""
+        entry_id = f"CE-{uuid.uuid4().hex[:8].upper()}"
+        entry_data['entry_id'] = entry_id
+        entry_data['created_at'] = datetime.now().isoformat()
+        entry_data['status'] = 'ACTIVE' # Trạng thái: ACTIVE, CANCELLED
         
-        return total_cogs
+        # Đảm bảo các giá trị mặc định nếu không được cung cấp
+        entry_data.setdefault('is_amortized', False)
+        entry_data.setdefault('amortization_months', 0)
+        entry_data.setdefault('start_amortization_date', None)
+        entry_data.setdefault('evidence_url', None)
+
+        self.entry_col.document(entry_id).set(entry_data)
+        return entry_data
+
+    def get_cost_entry(self, entry_id):
+        """Lấy thông tin chi tiết của một bản ghi chi phí."""
+        doc = self.entry_col.document(entry_id).get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+
+    def query_cost_entries(self, filters=None):
+        """
+        Truy vấn các bản ghi chi phí với bộ lọc.
+        filters là một dict, ví dụ:
+        {
+            "branch_id": "BR-001",
+            "start_date": "2023-01-01T00:00:00",
+            "end_date": "2023-01-31T23:59:59",
+            "status": "ACTIVE"
+        }
+        """
+        query = self.entry_col
+
+        if filters:
+            if 'branch_id' in filters:
+                query = query.where('branch_id', '==', filters['branch_id'])
+            if 'status' in filters:
+                query = query.where('status', '==', filters['status'])
+            # Firestore không hỗ trợ lọc theo 2 trường bất bình đẳng (range) cùng lúc
+            # nên việc lọc start_date và end_date cần được xử lý cẩn thận
+            if 'start_date' in filters:
+                 query = query.where('entry_date', '>=', filters['start_date'])
+            if 'end_date' in filters:
+                 query = query.where('entry_date', '<=', filters['end_date'])
+
+        entries = []
+        for doc in query.stream():
+            data = doc.to_dict()
+            entries.append(data)
+        return entries
+
+    def update_cost_entry(self, entry_id, updates):
+        """
+        Cập nhật một bản ghi chi phí.
+        'updates' là một dict chứa các trường cần thay đổi.
+        """
+        updates['updated_at'] = datetime.now().isoformat()
+        self.entry_col.document(entry_id).update(updates)
+        return True
+
+    def cancel_cost_entry(self, entry_id, user_id):
+        """Hủy một bản ghi chi phí."""
+        updates = {
+            "status": "CANCELLED",
+            "cancelled_by": user_id,
+            "cancelled_at": datetime.now().isoformat()
+        }
+        self.update_cost_entry(entry_id, updates)
+        return True
+        
+    def restore_cost_entry(self, entry_id):
+        """Phục hồi một bản ghi chi phí đã hủy."""
+        updates = {
+            "status": "ACTIVE",
+        }
+        # Xóa các trường liên quan đến việc hủy
+        updates['cancelled_by'] = firestore.DELETE_FIELD
+        updates['cancelled_at'] = firestore.DELETE_FIELD
+        self.update_cost_entry(entry_id, updates)
+        return True
+
+    def delete_cost_entry_permanently(self, entry_id):
+        """
+        Xóa vĩnh viễn một bản ghi chi phí. 
+        Chỉ dành cho Super Admin.
+        """
+        self.entry_col.document(entry_id).delete()
+        return True

@@ -1,3 +1,4 @@
+
 import bcrypt
 import uuid
 from datetime import datetime
@@ -6,82 +7,74 @@ import streamlit as st
 class AuthManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
-        self.collection = self.db.collection('users')
+        self.users_col = self.db.collection('users')
 
     def _hash_password(self, password):
-        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        if not password:
+            return None
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     def _check_password(self, password, hashed):
-        return bcrypt.checkpw(password.encode(), hashed.encode())
-
-    def create_user(self, username, password, role, branch_id, display_name):
-        # Kiểm tra username đã tồn tại chưa
-        existing = self.collection.where("username", "==", username).get()
-        if existing:
-            return False, "Username đã tồn tại"
-
-        user_id = f"U-{uuid.uuid4().hex[:6].upper()}"
-        data = {
-            "id": user_id,
-            "username": username,
-            "password_hash": self._hash_password(password),
-            "role": role,         # ADMIN / STAFF
-            "branch_id": branch_id,
-            "display_name": display_name,
-            "created_at": datetime.now().isoformat(),
-            "active": True
-        }
-        self.collection.document(user_id).set(data)
-        return True, data
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
     def login(self, username, password):
-        # Tìm user theo username
-        docs = self.collection.where("username", "==", username).where("active", "==", True).limit(1).get()
-        
-        if not docs:
+        docs = self.users_col.where("username", "==", username).where("active", "==", True).limit(1).stream()
+        user_list = [d.to_dict() for d in docs]
+        if not user_list:
             return None
         
-        user_data = docs[0].to_dict()
-        
-        if self._check_password(password, user_data['password_hash']):
-            # Update last login
-            self.collection.document(user_data['id']).update({
-                "last_login": datetime.now().isoformat()
-            })
-            # Xóa password hash trước khi trả về cho session
-            del user_data['password_hash']
+        user_data = user_list[0]
+        if self._check_password(password, user_data.get('password_hash', "")):
+            user_data.pop('password_hash', None)
+            self.users_col.document(user_data['uid']).update({"last_login": datetime.now().isoformat()})
+            # Lưu thông tin user vào session state để truy cập toàn cục
+            st.session_state['user'] = user_data
             return user_data
         return None
 
+    def get_current_user_info(self):
+        return st.session_state.get('user')
+
     def has_users(self):
-        """Kiểm tra xem hệ thống đã có user nào chưa (để setup lần đầu)"""
-        docs = self.collection.limit(1).get()
-        return len(docs) > 0
+        return len(self.users_col.limit(1).get()) > 0
+
+    # --- CÁC HÀM QUẢN LÝ CRUD CHO ADMIN ---
 
     def list_users(self):
-        """Lấy danh sách tất cả người dùng."""
-        docs = self.collection.stream()
+        """Lấy danh sách tất cả người dùng để hiển thị cho Admin."""
+        docs = self.users_col.order_by("display_name").stream()
         users = []
         for doc in docs:
             user = doc.to_dict()
-            del user['password_hash'] # Không bao giờ trả về password hash
+            user.pop('password_hash', None)
             users.append(user)
         return users
 
-    def get_user(self, user_id):
-        """Lấy thông tin một người dùng theo ID."""
-        doc = self.collection.document(user_id).get()
-        if not doc.exists:
-            return None
-        user = doc.to_dict()
-        del user['password_hash']
-        return user
-
-    def update_user(self, user_id, updates: dict):
-        """Cập nhật thông tin user. Nếu có password mới, hash nó."""
-        if 'password' in updates and updates['password']:
-            updates['password_hash'] = self._hash_password(updates.pop('password'))
+    def create_user_record(self, data: dict, password: str):
+        """Tạo một bản ghi người dùng mới."""
+        username = data.get('username')
+        if not username:
+            raise ValueError("Username là bắt buộc.")
         
-        updates['updated_at'] = datetime.now().isoformat()
-        self.collection.document(user_id).update(updates)
-        return self.get_user(user_id)
+        existing = self.users_col.where("username", "==", username).limit(1).get()
+        if len(existing) > 0:
+            raise ValueError(f"Username '{username}' đã tồn tại.")
+
+        uid = f"U-{uuid.uuid4().hex[:6].upper()}"
+        data['uid'] = uid
+        data['password_hash'] = self._hash_password(password)
+        data['created_at'] = datetime.now().isoformat()
+        data['active'] = True
+        
+        self.users_col.document(uid).set(data)
+        data.pop('password_hash', None)
+        return data
+
+    def update_user_record(self, uid: str, data: dict, new_password: str = None):
+        """Cập nhật thông tin người dùng. Hash password mới nếu có."""
+        if new_password:
+            data['password_hash'] = self._hash_password(new_password)
+        
+        data['updated_at'] = datetime.now().isoformat()
+        self.users_col.document(uid).update(data)
+        return True

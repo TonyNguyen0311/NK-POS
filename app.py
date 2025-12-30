@@ -26,97 +26,125 @@ from ui.report_page import render_report_page
 from ui.settings_page import render_settings_page
 from ui.promotions_page import render_promotions_page
 from ui.pricing_page import render_pricing_page
+from ui.cost_page import render_cost_page
+from ui.inventory_page import render_inventory_page
+from ui.user_management_page import render_user_management_page # <<< IMPORT MỚI
 
 st.set_page_config(layout="wide")
 
-def main():
+# --- ĐỊNH NGHĨA QUYỀN TRUY CẬP MENU ---
+MENU_PERMISSIONS = {
+    "admin": [
+        "Báo cáo & Phân tích",
+        "Bán hàng (POS)",
+        "Quản lý Kho",
+        "Quản lý Chi phí",
+        "Quản lý Sản phẩm",
+        "Thiết lập Giá",
+        "Quản lý Khuyến mãi",
+        "Quản lý Người dùng", # <<< THÊM MENU MỚI
+        "Quản trị Hệ thống",
+    ],
+    "manager": [
+        "Báo cáo & Phân tích",
+        "Bán hàng (POS)",
+        "Quản lý Kho",
+        "Quản lý Chi phí",
+        "Quản lý Sản phẩm",
+    ],
+    "staff": [
+        "Bán hàng (POS)",
+    ]
+}
+
+def init_managers():
+    # ... (Hàm này giữ nguyên, không thay đổi) ...
     if "firebase" not in st.secrets or "credentials_json" not in st.secrets.firebase:
         st.error("Firebase secrets not found...")
-        return
-
+        return False
     if 'firebase_client' not in st.session_state:
         try:
             creds_dict = json.loads(st.secrets["firebase"]["credentials_json"])
             st.session_state.firebase_client = FirebaseClient(creds_dict)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, KeyError):
             st.error("Failed to parse Firebase credentials...")
-            return
-
-    # Initialize managers
-    if 'auth_mgr' not in st.session_state:
-        st.session_state.auth_mgr = AuthManager(st.session_state.firebase_client)
-    if 'branch_mgr' not in st.session_state:
-        st.session_state.branch_mgr = BranchManager(st.session_state.firebase_client)
-    if 'product_mgr' not in st.session_state:
-        st.session_state.product_mgr = ProductManager(st.session_state.firebase_client)
-    if 'inventory_mgr' not in st.session_state:
-        st.session_state.inventory_mgr = InventoryManager(st.session_state.firebase_client)
-    if 'customer_mgr' not in st.session_state:
-        st.session_state.customer_mgr = CustomerManager(st.session_state.firebase_client)
+            return False
+    fb_client = st.session_state.firebase_client
+    if 'auth_mgr' not in st.session_state: st.session_state.auth_mgr = AuthManager(fb_client)
+    if 'branch_mgr' not in st.session_state: st.session_state.branch_mgr = BranchManager(fb_client)
+    if 'product_mgr' not in st.session_state: st.session_state.product_mgr = ProductManager(fb_client)
+    if 'inventory_mgr' not in st.session_state: st.session_state.inventory_mgr = InventoryManager(fb_client)
+    if 'customer_mgr' not in st.session_state: st.session_state.customer_mgr = CustomerManager(fb_client)
+    if 'settings_mgr' not in st.session_state: st.session_state.settings_mgr = SettingsManager(fb_client)
+    if 'promotion_mgr' not in st.session_state: st.session_state.promotion_mgr = PromotionManager(fb_client)
+    if 'cost_mgr' not in st.session_state: st.session_state.cost_mgr = CostManager(fb_client)
+    if 'price_mgr' not in st.session_state: st.session_state.price_mgr = PriceManager(fb_client)
     if 'report_mgr' not in st.session_state:
-        st.session_state.report_mgr = ReportManager(st.session_state.firebase_client)
-    if 'settings_mgr' not in st.session_state:
-        st.session_state.settings_mgr = SettingsManager(st.session_state.firebase_client)
-    if 'promotion_mgr' not in st.session_state:
-        st.session_state.promotion_mgr = PromotionManager(st.session_state.firebase_client)
-    # Sửa lỗi: Truyền firebase_client vào CostManager
-    if 'cost_mgr' not in st.session_state:
-        st.session_state.cost_mgr = CostManager(st.session_state.firebase_client)
-    if 'price_mgr' not in st.session_state:
-        st.session_state.price_mgr = PriceManager(st.session_state.firebase_client)
-
+        st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
     if 'pos_mgr' not in st.session_state:
         st.session_state.pos_mgr = POSManager(
-            firebase_client=st.session_state.firebase_client,
+            firebase_client=fb_client,
             inventory_mgr=st.session_state.inventory_mgr,
             customer_mgr=st.session_state.customer_mgr,
-            promotion_mgr=st.session_state.promotion_mgr, 
-            cost_mgr=st.session_state.cost_mgr,
-            price_mgr=st.session_state.price_mgr
+            promotion_mgr=st.session_state.promotion_mgr,
+            price_mgr=st.session_state.price_mgr,
+            cost_mgr=st.session_state.cost_mgr
         )
-    
-    st.session_state.price_mgr.run_price_activation_job()
-    st.session_state.promotion_mgr.check_and_initialize()
-    
-    if 'user' not in st.session_state:
-        if not check_remember_me():
-            render_login()
-            return
+    return True
 
-    if not is_session_active():
-        render_login()
-        return
-
+def display_sidebar():
+    # ... (Hàm này giữ nguyên, không thay đổi) ...
     user_info = st.session_state.user
-    st.sidebar.success(f"Xin chào, {user_info['display_name']}!")
-    st.sidebar.write(f"Chi nhánh: **{st.session_state.branch_mgr.get_branch(user_info['branch_id'])['name']}**")
-    st.sidebar.write(f"Vai trò: **{user_info['role']}**")
-
-    menu_options = {
-        "ADMIN": ["Bán hàng (POS)", "Báo cáo", "Thiết lập Giá", "Quản lý Sản phẩm", "Quản lý Khuyến mãi", "Quản lý Kho", "Quản lý Chi nhánh", "Quản trị"],
-        "STAFF": ["Bán hàng (POS)", "Báo cáo", "Quản lý Kho"]
-    }
-    
-    available_pages = menu_options.get(user_info['role'], [])
-    page = st.sidebar.selectbox("Chức năng", available_pages)
-
-    page_renderers = {
-        "Bán hàng (POS)": render_pos_page,
-        "Báo cáo": render_report_page,
-        "Thiết lập Giá": render_pricing_page,
-        "Quản lý Sản phẩm": render_product_page,
-        "Quản lý Khuyến mãi": render_promotions_page,
-        "Quản trị": render_settings_page
-    }
-    if page in page_renderers:
-        page_renderers[page]()
-
+    st.sidebar.success(f"Xin chào, {user_info.get('display_name', 'Người dùng')}!")
+    role = user_info.get('role', 'staff')
+    st.sidebar.write(f"Vai trò: **{role.upper()}**")
+    branch_ids = user_info.get('branch_ids', [])
+    if role == 'admin':
+        st.sidebar.write("Quyền truy cập: **Toàn bộ hệ thống**")
+    elif branch_ids:
+        branch_names = [st.session_state.branch_mgr.get_branch_name(b_id) for b_id in branch_ids]
+        st.sidebar.write(f"Chi nhánh: **{', '.join(branch_names)}**")
+    available_pages = MENU_PERMISSIONS.get(role, [])
+    if "Bán hàng (POS)" in available_pages:
+        available_pages.insert(0, available_pages.pop(available_pages.index("Bán hàng (POS)")))
+    if "Báo cáo & Phân tích" in available_pages:
+         available_pages.insert(0, available_pages.pop(available_pages.index("Báo cáo & Phân tích")))
+    page = st.sidebar.selectbox("Chức năng", available_pages, key="main_menu")
     if st.sidebar.button("Đăng xuất"):
         if os.path.exists(".remember_me"):
             os.remove(".remember_me")
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+    return page
+
+def main():
+    if not init_managers():
+        return
+
+    if not is_session_active() and not check_remember_me():
+        render_login()
+        return
+    
+    page = display_sidebar()
+
+    # Ánh xạ tên menu tới hàm render tương ứng
+    page_renderers = {
+        "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
+        "Báo cáo & Phân tích": lambda: render_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
+        "Quản lý Sản phẩm": lambda: render_product_page(st.session_state.product_mgr, st.session_state.branch_mgr),
+        "Quản lý Kho": lambda: render_inventory_page(st.session_state.inventory_mgr, st.session_state.branch_mgr, st.session_state.product_mgr, st.session_state.auth_mgr),
+        "Quản lý Chi phí": lambda: render_cost_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
+        "Thiết lập Giá": lambda: render_pricing_page(st.session_state.price_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
+        "Quản lý Khuyến mãi": lambda: render_promotions_page(st.session_state.promotion_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
+        "Quản lý Người dùng": lambda: render_user_management_page(st.session_state.auth_mgr, st.session_state.branch_mgr), # <<< THÊM RENDERER MỚI
+        "Quản trị Hệ thống": lambda: render_settings_page(st.session_state.settings_mgr),
+    }
+
+    if page in page_renderers:
+        page_renderers[page]()
+    else:
+        st.warning(f"Trang '{page}' đang trong quá trình phát triển.")
 
 if __name__ == "__main__":
     main()

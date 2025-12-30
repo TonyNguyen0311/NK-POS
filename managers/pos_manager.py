@@ -13,34 +13,31 @@ class POSManager:
         self.customer_mgr = customer_mgr
         self.promotion_mgr = promotion_mgr
         self.cost_mgr = cost_mgr
-        self.price_mgr = price_mgr # Thêm PriceManager
+        self.price_mgr = price_mgr
         self.orders_collection = self.db.collection('orders')
 
     # --------------------------------------------------------------------------
-    # HÀM QUẢN LÝ GIỎ HÀNG (TƯƠNG TÁC VỚI SESSION STATE)
+    # HÀM QUẢN LÝ GIỎ HÀNG
     # --------------------------------------------------------------------------
 
     def add_item_to_cart(self, branch_id: str, product_data: dict, stock_quantity: int):
         sku = product_data['sku']
-
-        # --- THAY ĐỔI LOGIC LẤY GIÁ ---
-        # Lấy giá bán hiện tại từ PriceManager thay vì từ product_data
         current_price = self.price_mgr.get_current_price_for_sku(branch_id, sku)
 
-        # Nếu giá bằng 0, không cho phép bán
         if current_price <= 0:
-            st.error(f"Sản phẩm '{product_data['name']}' ({sku}) chưa được thiết lập giá bán tại chi nhánh này hoặc giá không hợp lệ. Vui lòng kiểm tra trong mục Thiết lập giá.")
+            st.error(f"Sản phẩm '{product_data['name']}' ({sku}) chưa được thiết lập giá bán tại chi nhánh này. Vui lòng kiểm tra lại.")
             return
-        # --------------------------------
 
         if sku in st.session_state.pos_cart:
             self.update_item_quantity(sku, st.session_state.pos_cart[sku]['quantity'] + 1)
         else:
+            # === BỔ SUNG LƯU GIÁ VỐN VÀO GIỎ HÀNG ===
             st.session_state.pos_cart[sku] = {
                 "sku": sku,
                 "name": product_data['name'],
                 "category_id": product_data.get('category_id'),
-                "original_price": current_price, # Sử dụng giá vừa lấy được
+                "original_price": current_price,
+                "cost_price": product_data.get('cost_price', 0), # Lấy giá vốn từ product_data
                 "quantity": 1,
                 "stock": stock_quantity
             }
@@ -61,10 +58,11 @@ class POSManager:
         st.session_state.pos_manual_discount_value = 0
 
     # --------------------------------------------------------------------------
-    # HÀM TÍNH TOÁN TRUNG TÂM (KHÔNG THAY ĐỔI)
+    # HÀM TÍNH TOÁN GIỎ HÀNG
     # --------------------------------------------------------------------------
 
     def calculate_cart_state(self, cart_items: dict, customer_id: str, manual_discount_input: dict):
+        # (Hàm này không thay đổi, vì giá vốn không ảnh hưởng tới việc tính toán giảm giá)
         active_promo = self.promotion_mgr.get_active_price_program()
         calculated_items = {}
         subtotal = 0
@@ -117,7 +115,7 @@ class POSManager:
         }
 
     # --------------------------------------------------------------------------
-    # HÀM XỬ LÝ ĐƠN HÀNG (TƯƠNG TÁC VỚI DATABASE - KHÔNG THAY ĐỔI)
+    # HÀM XỬ LÝ TẠO ĐƠN HÀNG
     # --------------------------------------------------------------------------
 
     def _create_order_id(self, branch_id):
@@ -133,14 +131,11 @@ class POSManager:
             return False, "Mức giảm giá thêm không hợp lệ."
 
         order_id = self._create_order_id(branch_id)
-
-        items_for_cogs = []
-        for sku, item in cart_state['items'].items():
-            items_for_cogs.append({"product_id": sku, "quantity": item['quantity']})
         
-        total_cogs = self.cost_mgr.get_cogs_for_items(branch_id, items_for_cogs)
-
+        # === TÍNH TOÁN VÀ LƯU TRỮ GIÁ VỐN (COGS) ===
         order_items_to_save = []
+        total_cogs = 0 
+
         for sku, item in cart_state['items'].items():
             line_total_before_manual = item['line_total_after_auto_discount']
             total_before_manual = cart_state['subtotal'] - cart_state['total_auto_discount']
@@ -152,11 +147,18 @@ class POSManager:
             final_line_total = line_total_before_manual - proportional_manual_discount
             final_price_per_unit = final_line_total / item['quantity'] if item['quantity'] > 0 else 0
 
+            # Lấy giá vốn từ item trong giỏ hàng
+            item_cost_price = item.get('cost_price', 0)
+            line_cogs = item_cost_price * item['quantity']
+            total_cogs += line_cogs
+
             order_items_to_save.append({
                 "sku": sku,
                 "name": item['name'],
                 "quantity": item['quantity'],
                 "original_price": item['original_price'],
+                "cost_price": item_cost_price, # <-- LƯU GIÁ VỐN TỪNG SẢN PHẨM
+                "line_cogs": line_cogs, # <-- LƯU TỔNG VỐN CỦA DÒNG
                 "auto_discount_applied": item['auto_discount_applied'],
                 "manual_discount_applied": proportional_manual_discount,
                 "final_price": final_price_per_unit
@@ -172,16 +174,18 @@ class POSManager:
             "total_auto_discount": cart_state['total_auto_discount'],
             "total_manual_discount": cart_state['total_manual_discount'],
             "grand_total": cart_state['grand_total'],
-            "total_cogs": total_cogs,
+            "total_cogs": total_cogs, # <-- LƯU TỔNG VỐN CỦA CẢ ĐƠN HÀNG
             "promotion_id": cart_state['active_promotion']['id'] if cart_state['active_promotion'] else None,
             "created_at": datetime.now().isoformat(),
             "status": "COMPLETED"
         }
+        # ===============================================
 
         try:
             @firestore.transactional
             def _process_order(transaction):
                 order_ref = self.orders_collection.document(order_id)
+                # 1. Cập nhật tồn kho
                 for item in order_items_to_save:
                     self.inventory_mgr.update_inventory(
                         sku=item['sku'],
@@ -189,6 +193,7 @@ class POSManager:
                         delta=-item['quantity'],
                         transaction=transaction
                     )
+                # 2. Cập nhật thông tin khách hàng
                 if customer_id != "-":
                     self.customer_mgr.update_customer_stats(
                         transaction=transaction,
@@ -196,9 +201,11 @@ class POSManager:
                         amount_spent_delta=final_order_data['grand_total'],
                         points_delta=int(final_order_data['grand_total'] / 1000) 
                     )
+                # 3. Lưu đơn hàng
                 transaction.set(order_ref, final_order_data)
 
             _process_order(self.db.transaction())
             return True, order_id
         except Exception as e:
+            # TODO: Cần có cơ chế rollback hoặc xử lý lỗi tốt hơn ở đây
             return False, str(e)
