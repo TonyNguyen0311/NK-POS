@@ -27,9 +27,8 @@ def render_pos_page():
         st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
 
     # 3. LẤY DỮ LIỆU GỐC
-    # Thay vì lấy tất cả sản phẩm, ta sẽ lấy sản phẩm theo chi nhánh
-    # Đây là một sự thay đổi lớn trong tương lai, hiện tại vẫn dùng list_products
-    all_products = product_mgr.list_products()
+    # --- TỐI ƯU HÓA: Chỉ lấy các sản phẩm được niêm yết tại chi nhánh hiện tại ---
+    branch_products = product_mgr.get_listed_products_for_branch(current_branch_id)
     all_categories = product_mgr.get_categories()
     # Lấy tồn kho cho chi nhánh hiện tại
     branch_inventory = inventory_mgr.get_inventory_by_branch(current_branch_id)
@@ -59,7 +58,8 @@ def render_pos_page():
 
         st.divider()
 
-        filtered_products = [p for p in all_products if (search_query.lower() in p['name'].lower() or search_query.lower() in p.get('sku', '').lower())]
+        # Lọc sản phẩm dựa trên danh sách đã được tối ưu hóa (branch_products)
+        filtered_products = [p for p in branch_products if (search_query.lower() in p['name'].lower() or search_query.lower() in p.get('sku', '').lower())]
         if selected_cat != "ALL":
             filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
 

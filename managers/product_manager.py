@@ -118,7 +118,22 @@ class ProductManager:
             d['sku'] = doc.id
             results.append(d)
         return results
-            
+
+    def get_listed_products_for_branch(self, branch_id: str):
+        """
+        Lấy danh sách các sản phẩm được niêm yết (có giá và active) cho một chi nhánh cụ thể.
+        Đây là hàm để sử dụng trên trang POS.
+        """
+        field_path = f"price_by_branch.{branch_id}.active"
+        query = self.collection.where("active", "==", True).where(field_path, "==", True)
+        
+        results = []
+        for doc in query.stream():
+            d = doc.to_dict()
+            d['sku'] = doc.id
+            results.append(d)
+        return results
+
     def delete_product(self, sku):
         self.collection.document(sku).update({"active": False})
 
