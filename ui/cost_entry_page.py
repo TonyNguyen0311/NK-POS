@@ -7,13 +7,6 @@ from managers.cost_manager import CostManager
 from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
 
-COST_CLASSIFICATIONS = {
-    "FIXED": "Định phí (Mặt bằng, Lương,...)",
-    "VARIABLE": "Biến phí (Nguyên vật liệu, Điện nước,...)",
-    "AMORTIZED": "Chi phí phân bổ (Marketing, Sửa chữa lớn,...)",
-    "CAPEX": "Chi phí vốn (Mua sắm máy móc, Xây dựng,...)"
-}
-
 def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
     st.header("📝 Ghi nhận Chi phí")
 
@@ -38,33 +31,41 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
 
     tab1, tab2 = st.tabs(["Ghi nhận Chi phí mới", "Lịch sử & Quản lý Chi phí"])
 
-    # --- TAB 1: GHI NHẬN CHI PHÍ MỚI ---
     with tab1:
         with st.form("new_cost_entry_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 if len(allowed_branches_map) > 1:
-                    selected_branch_id = st.selectbox("Chi nhánh", options=list(allowed_branches_map.keys()), format_func=lambda x: allowed_branches_map[x], key="cost_branch")
+                    selected_branch_id = st.selectbox("Chi nhánh", options=list(allowed_branches_map.keys()), format_func=lambda x: allowed_branches_map[x])
                 else:
                     selected_branch_id = list(allowed_branches_map.keys())[0]
                     st.text_input("Chi nhánh", value=allowed_branches_map[selected_branch_id], disabled=True)
                 
-                amount = st.number_input("Số tiền (VNĐ)", min_value=0, step=1000, key="cost_amount")
-                entry_date = st.date_input("Ngày chi", key="cost_date")
+                amount = st.number_input("Số tiền (VNĐ)", min_value=0, step=1000)
+                entry_date = st.date_input("Ngày chi")
 
             with c2:
-                selected_group_id = st.selectbox("Nhóm chi phí", options=list(group_map.keys()), format_func=lambda x: group_map.get(x, x), key="cost_group")
-                classification = st.selectbox("Phân loại chi phí", options=list(COST_CLASSIFICATIONS.keys()), format_func=lambda k: COST_CLASSIFICATIONS[k], key="cost_class")
-                
-            name = st.text_input("Mô tả/Diễn giải chi phí", key="cost_name")
+                selected_group_id = st.selectbox("Nhóm chi phí", options=list(group_map.keys()), format_func=lambda x: group_map.get(x, x))
+                name = st.text_input("Mô tả/Diễn giải chi phí")
             
-            # --- NEW: Image Upload ---
-            uploaded_file = st.file_uploader("Ảnh hóa đơn/chứng từ (tùy chọn)", type=["jpg", "jpeg", "png"])
+            st.divider()
 
-            is_amortized = st.checkbox("Phân bổ chi phí này (chia đều cho nhiều tháng tới)", key="cost_amortize_check")
+            # --- NEW: OPEX/CAPEX Classification ---
+            classification_display = st.selectbox(
+                "Phân loại", 
+                ["Chi phí hoạt động (OPEX)", "Chi phí vốn (CAPEX)"],
+                help="**OPEX**: Chi phí hoạt động hàng ngày. **CAPEX**: Chi phí đầu tư tài sản lớn, có thể khấu hao."
+            )
+
+            is_amortized = False
             amortize_months = 0
-            if is_amortized:
-                amortize_months = st.number_input("Phân bổ trong bao nhiêu tháng?", min_value=1, max_value=36, value=3, step=1, key="cost_amortize_months")
+            # Show amortization options only for CAPEX
+            if classification_display == "Chi phí vốn (CAPEX)":
+                is_amortized = st.toggle("Tính khấu hao cho chi phí này?", help="Bật công tắc nếu đây là tài sản cần được tính khấu hao giá trị theo thời gian.")
+                if is_amortized:
+                    amortize_months = st.number_input("Khấu hao trong (tháng)", min_value=1, max_value=360, value=12, step=1)
+
+            uploaded_file = st.file_uploader("Ảnh hóa đơn/chứng từ (tùy chọn)", type=["jpg", "jpeg", "png"])
             
             submitted = st.form_submit_button("Lưu Chi phí")
 
@@ -77,6 +78,9 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                         if uploaded_file:
                             receipt_url = cost_mgr.upload_receipt_image(uploaded_file)
                         
+                        # Map display name to database value
+                        db_classification = 'CAPEX' if classification_display == "Chi phí vốn (CAPEX)" else 'OPEX'
+                        
                         cost_mgr.create_cost_entry(
                             branch_id=selected_branch_id,
                             name=name,
@@ -84,17 +88,18 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                             group_id=selected_group_id,
                             entry_date=entry_date.isoformat(),
                             created_by=user['uid'],
-                            classification=classification, 
+                            classification=db_classification, # Use mapped value
                             is_amortized=is_amortized,
                             amortize_months=amortize_months,
-                            receipt_url=receipt_url # Save the URL
+                            receipt_url=receipt_url
                         )
                         st.success(f"Đã ghi nhận chi phí '{name}' thành công!")
                     except Exception as e:
                         st.error(f"Lỗi khi ghi nhận chi phí: {e}")
     
-    # --- TAB 2: LỊCH SỬ & QUẢN LÝ ---
     with tab2:
+        # ... (Rest of the code for the history tab remains largely the same)
+        # I'll add the display logic for amortization
         with st.expander("Bộ lọc", expanded=True):
             f_c1, f_c2, f_c3 = st.columns(3)
             today = datetime.now()
@@ -114,9 +119,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
             'status': 'ACTIVE'
         }
 
-        if 'all' in selected_branches:
-            filters['branch_ids'] = list(allowed_branches_map.keys())
-        else:
+        if 'all' not in selected_branches:
             filters['branch_ids'] = selected_branches
 
         try:
@@ -136,7 +139,14 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                     c1, c2, c3 = st.columns([2, 2, 1])
                     with c1:
                         st.markdown(f"**{row['name']}**")
-                        st.markdown(f"*{row['group_name']}* - {all_branches_map.get(row['branch_id'])}")
+                        st.markdown(f"*{row.get('group_name', 'N/A')}* - {row.get('branch_name', 'N/A')}")
+                        # Display CAPEX/Amortization info
+                        if row.get('classification') == 'CAPEX':
+                            if row.get('is_amortized') and row.get('amortization_months', 0) > 0:
+                                st.info(f"CAPEX / Khấu hao trong {row['amortization_months']} tháng", icon="📊")
+                            else:
+                                st.info("CAPEX", icon="📊")
+
                     with c2:
                         st.markdown(f"**{row['amount']:,} VNĐ**")
                         st.caption(f"Ngày: {row['entry_date']}")
@@ -144,13 +154,12 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                         if row.get('receipt_url'):
                             st.link_button("Xem ảnh", row['receipt_url'])
 
-                    # --- Action Buttons based on Role ---
+                    # Action Buttons
                     can_cancel = (user_role in ['admin', 'manager']) or (user_role == 'staff' and row['created_by'] == user['uid'])
                     can_delete = user_role == 'admin'
-                    
                     btn_c1, btn_c2, btn_c3 = st.columns(3)
                     if can_cancel:
-                        if btn_c2.button("Hủy phiếu chi", key=f"cancel_{row['id']}", use_container_width=True):
+                        if btn_c2.button("Hủy phiếu", key=f"cancel_{row['id']}", use_container_width=True):
                             cost_mgr.cancel_cost_entry(row['id'], user['uid'])
                             st.success(f"Đã hủy phiếu chi '{row['name']}'.")
                             st.rerun()
@@ -163,3 +172,4 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
 
         except Exception as e:
             st.error(f"Lỗi khi tải lịch sử chi phí: {e}")
+            st.exception(e) # For debugging
