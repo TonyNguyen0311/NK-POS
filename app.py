@@ -25,13 +25,11 @@ from ui.pos_page import render_pos_page
 from ui.report_page import render_report_page
 from ui.settings_page import render_settings_page
 from ui.promotions_page import render_promotions_page
-# Import the new pricing page
 from ui.pricing_page import render_pricing_page
 
 st.set_page_config(layout="wide")
 
 def main():
-    # Firebase and Managers Initialization (existing code...)
     if "firebase" not in st.secrets or "credentials_json" not in st.secrets.firebase:
         st.error("Firebase secrets not found...")
         return
@@ -61,8 +59,9 @@ def main():
         st.session_state.settings_mgr = SettingsManager(st.session_state.firebase_client)
     if 'promotion_mgr' not in st.session_state:
         st.session_state.promotion_mgr = PromotionManager(st.session_state.firebase_client)
+    # Sửa lỗi: Truyền firebase_client vào CostManager
     if 'cost_mgr' not in st.session_state:
-        st.session_state.cost_mgr = CostManager()
+        st.session_state.cost_mgr = CostManager(st.session_state.firebase_client)
     if 'price_mgr' not in st.session_state:
         st.session_state.price_mgr = PriceManager(st.session_state.firebase_client)
 
@@ -76,12 +75,9 @@ def main():
             price_mgr=st.session_state.price_mgr
         )
     
-    # --- RUN BACKGROUND JOBS ---
-    # This is a simple way to run jobs. For a real app, use a scheduled task (e.g., Cloud Functions).
     st.session_state.price_mgr.run_price_activation_job()
-    st.session_state.promotion_mgr.check_and_initialize() # This job checks for active promotions
+    st.session_state.promotion_mgr.check_and_initialize()
     
-    # Session and routing
     if 'user' not in st.session_state:
         if not check_remember_me():
             render_login()
@@ -91,29 +87,23 @@ def main():
         render_login()
         return
 
-    # Main app UI
     user_info = st.session_state.user
     st.sidebar.success(f"Xin chào, {user_info['display_name']}!")
     st.sidebar.write(f"Chi nhánh: **{st.session_state.branch_mgr.get_branch(user_info['branch_id'])['name']}**")
     st.sidebar.write(f"Vai trò: **{user_info['role']}**")
 
-    # --- MENU DEFINITION ---
-    # Thêm "Thiết lập Giá" vào menu
     menu_options = {
         "ADMIN": ["Bán hàng (POS)", "Báo cáo", "Thiết lập Giá", "Quản lý Sản phẩm", "Quản lý Khuyến mãi", "Quản lý Kho", "Quản lý Chi nhánh", "Quản trị"],
-        # STAFF chỉ có thể được xem nếu được cấp quyền sau này
         "STAFF": ["Bán hàng (POS)", "Báo cáo", "Quản lý Kho"]
     }
     
-    # Lấy danh sách menu dựa trên vai trò của user
     available_pages = menu_options.get(user_info['role'], [])
     page = st.sidebar.selectbox("Chức năng", available_pages)
 
-    # --- PAGE RENDERING ---
     page_renderers = {
         "Bán hàng (POS)": render_pos_page,
         "Báo cáo": render_report_page,
-        "Thiết lập Giá": render_pricing_page, # Thêm renderer cho trang mới
+        "Thiết lập Giá": render_pricing_page,
         "Quản lý Sản phẩm": render_product_page,
         "Quản lý Khuyến mãi": render_promotions_page,
         "Quản trị": render_settings_page
@@ -121,7 +111,6 @@ def main():
     if page in page_renderers:
         page_renderers[page]()
 
-    # Logout button
     if st.sidebar.button("Đăng xuất"):
         if os.path.exists(".remember_me"):
             os.remove(".remember_me")
