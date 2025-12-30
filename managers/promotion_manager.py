@@ -75,10 +75,23 @@ class PromotionManager:
         Creates a new promotion document in Firestore.
         """
         try:
+            # Add created_at timestamp
+            promo_data['created_at'] = datetime.now(timezone.utc).isoformat()
             self.collection_ref.add(promo_data)
             return True, "Tạo chương trình khuyến mãi thành công."
         except Exception as e:
             st.error(f"Lỗi khi tạo chương trình khuyến mãi: {e}")
+            return False, str(e)
+
+    def update_promotion_status(self, promo_id, is_active: bool):
+        """
+        Updates the 'is_active' status of a specific promotion.
+        """
+        try:
+            self.collection_ref.document(promo_id).update({"is_active": is_active})
+            return True, f"Đã cập nhật trạng thái của chương trình {promo_id}."
+        except Exception as e:
+            st.error(f"Lỗi khi cập nhật trạng thái: {e}")
             return False, str(e)
 
     def simulate_price_program_impact(self, promo_data, product_manager):
