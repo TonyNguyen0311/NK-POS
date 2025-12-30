@@ -126,25 +126,27 @@ def display_sidebar():
         branch_names = [st.session_state.branch_mgr.get_branch_name(b_id) for b_id in branch_ids]
         st.sidebar.write(f"Chi nhánh: **{', '.join(branch_names)}**")
 
-    # --- Build hierarchical menu ---
+    st.sidebar.divider()
+
+    # --- Accordion Menu Logic ---
     user_allowed_pages = MENU_PERMISSIONS.get(role, [])
-    display_options = []
-    display_to_page_map = {}
+
+    # Set a default page if the current one isn't set or is invalid
+    if 'page' not in st.session_state or st.session_state.page not in user_allowed_pages:
+        first_allowed_page = next((p for cat_pages in MENU_STRUCTURE.values() for p in cat_pages if p in user_allowed_pages), None)
+        st.session_state.page = first_allowed_page
+
+    st.sidebar.title("Chức năng")
 
     for category, pages in MENU_STRUCTURE.items():
-        # Check if user has access to any page in this category
-        pages_in_category = [p for p in pages if p in user_allowed_pages]
-        if pages_in_category:
-            for page in pages_in_category:
-                display_name = f"{category} > {page}"
-                display_options.append(display_name)
-                display_to_page_map[display_name] = page
-    
-    if not display_options:
-        st.sidebar.warning("Tài khoản của bạn chưa được cấp quyền truy cập chức năng nào.")
-        return None
-
-    selected_display_name = st.sidebar.selectbox("Chức năng", display_options, key="main_menu")
+        allowed_pages_in_category = [p for p in pages if p in user_allowed_pages]
+        if allowed_pages_in_category:
+            is_expanded = st.session_state.get('page') in allowed_pages_in_category
+            with st.sidebar.expander(category, expanded=is_expanded):
+                for page_name in allowed_pages_in_category:
+                    if st.button(page_name, key=f"btn_{page_name.replace(' ', '_')}", use_container_width=True):
+                        st.session_state.page = page_name
+                        st.rerun()
     
     st.sidebar.divider()
     if st.sidebar.button("Đăng xuất", use_container_width=True):
@@ -152,8 +154,7 @@ def display_sidebar():
         st.rerun()
         
     st.sidebar.caption(f"Phiên bản: {datetime.now().strftime('%Y%m%d.%H%M')}")
-    
-    return display_to_page_map.get(selected_display_name)
+    # This function no longer returns the page, it manages state directly.
 
 def main():
     if not init_managers():
@@ -167,11 +168,14 @@ def main():
         render_login_page(auth_mgr, branch_mgr)
         return
     
-    page = display_sidebar()
+    # The sidebar now manages the page state internally.
+    display_sidebar()
+    
+    # Get the current page from session state.
+    page = st.session_state.get('page')
 
-    # If no page is selected or available, do nothing.
     if not page:
-        st.info("Vui lòng chọn một chức năng từ thanh công cụ bên trái.")
+        st.info("Vui lòng chọn một chức năng từ thanh công cụ bên trái hoặc liên hệ quản trị viên để được cấp quyền.")
         return
 
     page_renderers = {
