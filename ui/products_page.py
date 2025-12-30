@@ -50,7 +50,7 @@ def render_product_page():
     with tab1:
         categories = prod_mgr.get_categories()
         units = prod_mgr.get_units()
-        branches = branch_mgr.get_all_branches()
+        branches = branch_mgr.list_branches()
 
         with st.expander("➕ THÊM SẢN PHẨM MỚI", expanded=False):
             with st.form("add_product_form", clear_on_submit=True):
