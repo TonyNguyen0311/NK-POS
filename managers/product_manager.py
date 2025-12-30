@@ -117,20 +117,22 @@ class ProductManager:
 
     def get_listed_products_for_branch(self, branch_id: str):
         """
-        Lấy danh sách các sản phẩm được niêm yết (có giá và active) cho một chi nhánh cụ thể.
+        Lấy danh sách các sản phẩm được niêm yết cho một chi nhánh.
+        WORKAROUND: Lọc thủ công trong Python để tránh bug của thư viện Firestore.
         """
-        # SỬA LỖI LẦN 3: Sử dụng bộ lọc AND tổng hợp để đảm bảo truy vấn đúng cú pháp.
-        composite_filter = And([
-            FieldFilter("active", "==", True),
-            FieldFilter(FieldPath("price_by_branch", branch_id, "active"), "==", True)
-        ])
-        query = self.collection.where(filter=composite_filter)
+        # 1. Lấy tất cả sản phẩm đang active
+        all_active_products = self.collection.where("active", "==", True).stream()
         
         results = []
-        for doc in query.stream():
+        for doc in all_active_products:
             d = doc.to_dict()
             d['sku'] = doc.id
-            results.append(d)
+            
+            # 2. Lọc trong Python
+            price_info = d.get('price_by_branch', {}).get(branch_id)
+            if price_info and price_info.get('active') is True:
+                results.append(d)
+                
         return results
 
     def delete_product(self, sku):
