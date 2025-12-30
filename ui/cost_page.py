@@ -23,7 +23,7 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
         st.error("Vui lòng đăng nhập.")
         return
 
-    # --- LOGIC PHÂN QUYỀN (giữ nguyên) ---
+    # --- LOGIC PHÂN QUYỀN ---
     user_role = user_info.get('role', 'staff')
     if user_role not in ['admin', 'manager']:
         st.warning("Bạn không có quyền truy cập vào chức năng này.")
@@ -42,17 +42,19 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
     cost_groups_raw = cost_mgr.get_cost_groups()
     group_map = {g['id']: g['group_name'] for g in cost_groups_raw}
 
-    tab1, tab2, tab3 = st.tabs([
-        "📝 Ghi nhận Chi phí", 
-        "🗂️ Lịch sử & Quản lý", 
-        "⚙️ Thiết lập Nhóm Chi phí"
-    ])
+    # --- CẢI TIẾN: HIỂN THỊ TAB DỰA TRÊN VAI TRÒ ---
+    if user_role == 'admin':
+        tab_list = ["📝 Ghi nhận Chi phí", "🗂️ Lịch sử & Quản lý", "⚙️ Thiết lập Nhóm Chi phí"]
+        tab1, tab2, tab3 = st.tabs(tab_list)
+    else: # Manager
+        tab_list = ["📝 Ghi nhận Chi phí", "🗂️ Lịch sử & Quản lý"]
+        tab1, tab2 = st.tabs(tab_list)
+
 
     # --- TAB 1: GHI NHẬN CHI PHÍ MỚI ---
     with tab1:
         st.subheader("Thêm một chi phí mới")
         with st.form("new_cost_entry_form", clear_on_submit=True):
-            # Chọn chi nhánh
             if len(allowed_branches_map) > 1:
                 selected_branch_id = st.selectbox("Chi nhánh", options=list(allowed_branches_map.keys()), format_func=lambda x: allowed_branches_map[x])
             else:
@@ -65,12 +67,10 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
                 selected_group_id = st.selectbox("Nhóm chi phí", options=list(group_map.keys()), format_func=lambda x: group_map.get(x, x))
             with c2:
                 entry_date = st.date_input("Ngày chi")
-                # === THÊM TRƯỜNG PHÂN LOẠI CHI PHÍ ===
                 classification = st.selectbox("Phân loại chi phí", options=list(COST_CLASSIFICATIONS.keys()), format_func=lambda k: COST_CLASSIFICATIONS[k])
             
             name = st.text_input("Mô tả chi tiết chi phí")
 
-            # Phần phân bổ giữ nguyên
             is_amortized = st.checkbox("Phân bổ chi phí này (chia đều cho nhiều tháng tới)")
             amortize_months = 0
             if is_amortized:
@@ -90,7 +90,6 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
                             group_id=selected_group_id,
                             entry_date=entry_date.isoformat(),
                             created_by=user_info['uid'],
-                            # Truyền giá trị classification mới
                             classification=classification, 
                             is_amortized=is_amortized,
                             amortize_months=amortize_months if is_amortized else 0
@@ -102,7 +101,6 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
     # --- TAB 2: LỊCH SỬ & QUẢN LÝ ---
     with tab2:
         st.subheader("Lịch sử các chi phí đã ghi nhận")
-        # Bộ lọc (giữ nguyên)
         with st.expander("Bộ lọc", expanded=True):
             f_c1, f_c2, f_c3 = st.columns(3)
             filter_start_date = f_c1.date_input("Từ ngày", datetime.now() - timedelta(days=30), key="cost_start")
@@ -125,11 +123,9 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
         
         if cost_entries:
             df = pd.DataFrame(cost_entries)
-            # === CẬP NHẬT DF ĐỂ HIỂN THỊ CỘT MỚI ===
             df['entry_date'] = pd.to_datetime(df['entry_date']).dt.strftime('%Y-%m-%d')
             df['branch_name'] = df['branch_id'].map(all_branches_map)
             df['group_name'] = df['group_id'].map(group_map)
-            # Dùng map để dịch classification key thành tên dễ đọc
             df['classification_display'] = df['classification'].map(COST_CLASSIFICATIONS)
 
             st.dataframe(df[[
@@ -147,11 +143,10 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
         else:
             st.info("Không có dữ liệu chi phí nào trong khoảng thời gian và chi nhánh đã chọn.")
 
-    # --- TAB 3: THIẾT LẬP NHÓM CHI PHÍ (giữ nguyên) ---
-    with tab3:
-        if user_role == 'admin':
+    # --- TAB 3: THIẾT LẬP NHÓM CHI PHÍ (CHỈ DÀNH CHO ADMIN) ---
+    if user_role == 'admin':
+        with tab3:
             st.subheader("Quản lý các Nhóm Chi phí")
-            # ... (code form tạo và xóa nhóm giữ nguyên) ...
             with st.form("add_group_form", clear_on_submit=True):
                 new_group_name = st.text_input("Tên nhóm chi phí mới")
                 if st.form_submit_button("Thêm Nhóm"):
@@ -175,5 +170,4 @@ def render_cost_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr:
                             st.experimental_rerun()
                         except Exception as e:
                             st.error(f"Lỗi khi xóa: {e}")
-        else:
-            st.info("Chỉ tài khoản Quản trị viên (admin) mới có quyền truy cập chức năng này.")
+

@@ -95,7 +95,8 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
                 c1, c2, c3 = st.columns([2,1,1])
                 with c1: st.markdown(f"**{prod['name']}** `{prod['sku']}`")
                 with c2: st.metric("Giá hiện tại", f"{current_price:,} VNĐ")
-                with c3: st.toggle("Đang bán", value=is_active, key=f"status_{sku}", on_change=price_mgr.set_business_status, args=(sku, selected_branch_id, st.session_state[f"status_{sku}"] if f"status_{sku}" in st.session_state else not is_active))
+                # Sửa lỗi logic: Sử dụng lambda để đảm bảo giá trị mới nhất từ session_state được dùng
+                with c3: st.toggle("Đang bán", value=is_active, key=f"status_{sku}", on_change=lambda sku=sku: price_mgr.set_business_status(sku, selected_branch_id, st.session_state[f"status_{sku}"]))
 
                 # --- LỊCH TRÌNH GIÁ ---
                 with st.expander("🗓️ Lịch trình giá tương lai"):
