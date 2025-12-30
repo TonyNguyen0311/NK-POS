@@ -56,8 +56,9 @@ def render_pos_page():
     final_total = subtotal - total_auto_discount - total_manual_discount
 
     # Cập nhật lại final price trong list items
-    for item in cart_items_for_order:
-        item['final_price_after_discounts'] -= (item['original_price'] * item['quantity'] / subtotal) * total_manual_discount / item['quantity'] if subtotal > 0 else 0
+    if subtotal > 0:
+        for item in cart_items_for_order:
+            item['final_price_after_discounts'] -= (item['original_price'] * item['quantity'] / subtotal) * total_manual_discount / item['quantity']
 
     # ---- GIAO DIỆN ----
     col1, col2 = st.columns([2, 3])
@@ -90,9 +91,11 @@ def render_pos_page():
             # Form cho giảm giá và tổng tiền
             with st.form("payment_form"):
                 st.number_input(
-                    f"Giảm giá thêm (% - Tối đa: {manual_discount_limit}%)",
-                    min_value=0.0, max_value=float(manual_discount_limit),
-                    step=1.0, key="manual_discount_percent"
+                    "Giảm giá thêm (%)", # Đã ẩn thông tin giới hạn
+                    min_value=0.0, 
+                    max_value=float(manual_discount_limit), # Logic giới hạn vẫn được áp dụng
+                    step=1.0, 
+                    key="manual_discount_percent"
                 )
                 
                 st.metric("Tổng tiền hàng", f"{subtotal:,.0f} VNĐ")
