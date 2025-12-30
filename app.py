@@ -23,7 +23,8 @@ from ui.pos_page import render_pos_page
 from ui.report_page import render_report_page
 from ui.settings_page import render_settings_page
 from ui.promotions_page import render_promotions_page
-from ui.cost_page import render_cost_page
+from ui.cost_entry_page import render_cost_entry_page
+from ui.cost_group_page import render_cost_group_page
 from ui.inventory_page import render_inventory_page
 from ui.user_management_page import render_user_management_page
 from ui.product_catalog_page import render_product_catalog_page
@@ -32,24 +33,28 @@ from ui.business_products_page import render_business_products_page
 st.set_page_config(layout="wide")
 
 # --- MENU PERMISSIONS ---
+# Refactored "Quản lý Chi phí" into "Ghi nhận Chi phí" and "Danh mục Chi phí"
 MENU_PERMISSIONS = {
     "admin": [
         "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
-        "Quản lý Kho", "Quản lý Chi phí", "Danh mục Sản phẩm",
+        "Quản lý Kho", "Ghi nhận Chi phí", "Danh mục Sản phẩm", "Danh mục Chi phí",
         "Quản lý Khuyến mãi", "Quản lý Người dùng", "Quản trị Hệ thống",
     ],
     "manager": [
         "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
-        "Quản lý Kho", "Quản lý Chi phí",
+        "Quản lý Kho", "Ghi nhận Chi phí",
     ],
-    "staff": ["Bán hàng (POS)"]
+    # Staff can now record daily costs
+    "staff": ["Bán hàng (POS)", "Ghi nhận Chi phí"]
 }
 
 # --- NEW MENU STRUCTURE ---
+# Moved cost features to more logical categories
 MENU_STRUCTURE = {
     "📈 Nghiệp vụ": [
         "Bán hàng (POS)", 
-        "Báo cáo & Phân tích"
+        "Báo cáo & Phân tích",
+        "Ghi nhận Chi phí"
     ],
     "📦 Hàng hoá": [
         "Danh mục Sản phẩm", 
@@ -57,7 +62,7 @@ MENU_STRUCTURE = {
         "Quản lý Kho"
     ],
     "⚙️ Thiết lập": [
-        "Quản lý Chi phí",
+        "Danh mục Chi phí",
         "Quản lý Khuyến mãi"
     ],
     "🔑 Quản trị": [
@@ -178,11 +183,13 @@ def main():
         st.info("Vui lòng chọn một chức năng từ thanh công cụ bên trái hoặc liên hệ quản trị viên để được cấp quyền.")
         return
 
+    # Update renderers for the new cost pages
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
         "Báo cáo & Phân tích": lambda: render_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Quản lý Kho": lambda: render_inventory_page(st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
-        "Quản lý Chi phí": lambda: render_cost_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
+        "Ghi nhận Chi phí": lambda: render_cost_entry_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
+        "Danh mục Chi phí": lambda: render_cost_group_page(st.session_state.cost_mgr),
         "Quản lý Khuyến mãi": lambda: render_promotions_page(st.session_state.promotion_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
         "Quản lý Người dùng": lambda: render_user_management_page(st.session_state.auth_mgr, st.session_state.branch_mgr),
         "Quản trị Hệ thống": lambda: render_settings_page(st.session_state.settings_mgr, st.session_state.auth_mgr),
