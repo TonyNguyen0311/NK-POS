@@ -17,7 +17,7 @@ from managers.cost_manager import CostManager
 from managers.price_manager import PriceManager
 
 # Import UI pages
-from ui.login_page import render_login
+from ui.login_page import render_login_page # FIX: Correct import name
 from ui.pos_page import render_pos_page
 from ui.report_page import render_report_page
 from ui.settings_page import render_settings_page
@@ -45,27 +45,21 @@ MENU_PERMISSIONS = {
 }
 
 def init_managers():
-    # Kiểm tra secrets cho cả hai cấu hình
     if "firebase" not in st.secrets or "credentials_json" not in st.secrets.firebase or "pyrebase_config" not in st.secrets.firebase:
         st.error("Firebase secrets (credentials_json or pyrebase_config) not found...")
         return False
         
     if 'firebase_client' not in st.session_state:
         try:
-            # Tải cả hai cấu hình từ secrets
             creds_dict = json.loads(st.secrets["firebase"]["credentials_json"])
             pyrebase_config_dict = json.loads(st.secrets["firebase"]["pyrebase_config"])
-            
-            # Khởi tạo FirebaseClient với cả hai cấu hình
             st.session_state.firebase_client = FirebaseClient(creds_dict, pyrebase_config_dict)
-            
         except (json.JSONDecodeError, KeyError) as e:
             st.error(f"Failed to parse Firebase configurations: {e}")
             return False
 
     fb_client = st.session_state.firebase_client
     
-    # Khởi tạo các manager như cũ
     if 'auth_mgr' not in st.session_state: st.session_state.auth_mgr = AuthManager(fb_client)
     if 'branch_mgr' not in st.session_state: st.session_state.branch_mgr = BranchManager(fb_client)
     if 'product_mgr' not in st.session_state: st.session_state.product_mgr = ProductManager(fb_client)
@@ -115,10 +109,12 @@ def main():
         return
 
     auth_mgr = st.session_state.auth_mgr
+    branch_mgr = st.session_state.branch_mgr # Get branch manager
     auth_mgr.check_cookie_and_re_auth()
 
     if 'user' not in st.session_state or st.session_state.user is None:
-        render_login()
+        # FIX: Call the correct function with correct arguments
+        render_login_page(auth_mgr, branch_mgr)
         return
     
     page = display_sidebar()
