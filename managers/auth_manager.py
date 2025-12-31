@@ -9,6 +9,15 @@ import pyrebase
 from streamlit_cookies_manager import EncryptedCookieManager
 import requests
 
+# Role hierarchy definition (lowest to highest)
+ROLES = ['staff', 'supervisor', 'manager', 'admin']
+ALLOWED_TO_CREATE = {
+    'admin': ['staff', 'supervisor', 'manager', 'admin'],
+    'manager': ['staff', 'supervisor'],
+    'supervisor': ['staff'],
+    'staff': []
+}
+
 class AuthManager:
     def __init__(self, firebase_client, settings_mgr):
         self.db = firebase_client.db
@@ -212,6 +221,17 @@ class AuthManager:
         return users
 
     def create_user_record(self, data: dict, password: str):
+        actor = self.get_current_user_info()
+        if not actor:
+            raise PermissionError("Không thể xác thực người dùng. Vui lòng đăng nhập lại.")
+
+        actor_role = actor.get('role', 'staff').lower()
+        new_user_role = data.get('role', 'staff').lower()
+
+        allowed_to_create_roles = ALLOWED_TO_CREATE.get(actor_role, [])
+        if new_user_role not in allowed_to_create_roles:
+            raise PermissionError(f"Vai trò của bạn ({actor_role}) không có quyền tạo người dùng với vai trò '{new_user_role}'.")
+
         username = data.get('username')
         if not username:
             raise ValueError("Username là bắt buộc.")
@@ -233,6 +253,7 @@ class AuthManager:
 
         data['uid'] = uid
         data['created_at'] = datetime.now(timezone.utc).isoformat()
+        data['creator_id'] = actor.get('uid')
         data['active'] = True
         if 'branch_ids' not in data:
             data['branch_ids'] = []
@@ -242,10 +263,38 @@ class AuthManager:
         return data
 
     def update_user_record(self, uid: str, data: dict, new_password: str = None):
+        actor = self.get_current_user_info()
+        if not actor:
+            raise PermissionError("Không thể xác thực người dùng. Vui lòng đăng nhập lại.")
+        
+        actor_uid = actor.get('uid')
+        actor_role = actor.get('role', 'staff').lower()
+        actor_level = ROLES.index(actor_role)
+
+        target_user_doc = self.users_col.document(uid).get()
+        if not target_user_doc.exists:
+            raise ValueError("Người dùng không tồn tại.")
+        
+        target_user_data = target_user_doc.to_dict()
+        target_user_role = target_user_data.get('role', 'staff').lower()
+        target_level = ROLES.index(target_user_role)
+
+        if actor_uid != uid and actor_level <= target_level and actor_role != 'admin':
+            raise PermissionError("Bạn không có quyền chỉnh sửa người dùng có vai trò ngang hoặc cao hơn.")
+
+        if 'role' in data:
+            new_role = data['role'].lower()
+            if ROLES.index(new_role) > actor_level:
+                raise PermissionError(f"Bạn không thể gán vai trò ('{new_role}') cao hơn vai trò của chính mình.")
+            if actor_uid == uid and new_role != actor_role and actor_role != 'admin':
+                raise PermissionError("Bạn không thể tự thay đổi vai trò của chính mình.")
+
         if new_password:
-            self.auth.update_user(uid, password=new_password)
+            self.auth.update_user_account(uid, password=new_password)
+
         if 'username' in data:
             data['username'] = data['username'].lower()
+        
         data['updated_at'] = datetime.now(timezone.utc).isoformat()
         self.users_col.document(uid).update(data)
         return True

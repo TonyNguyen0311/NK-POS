@@ -39,17 +39,28 @@ st.set_page_config(layout="wide")
 
 # --- MENU PERMISSIONS & STRUCTURE ---
 MENU_PERMISSIONS = {
+    # Admin has all permissions
     "admin": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Danh mục Sản phẩm",
-        "Danh mục Chi phí", "Phân bổ Chi phí",
-        "Quản lý Khuyến mãi", "Quản lý Người dùng", "Quản trị Hệ thống",
+        "Danh mục Chi phí", "Phân bổ Chi phí", "Quản lý Khuyến mãi", 
+        "Quản lý Người dùng", "Quản trị Hệ thống",
     ],
+    # Manager can see reports and manage their users/promotions
     "manager": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
-        "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
+        "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Khuyến mãi",
+        "Quản lý Người dùng",
     ],
-    "staff": ["Bán hàng (POS)", "Ghi nhận Chi phí"]
+    # Supervisor manages a store's operations and staff
+    "supervisor": [
+        "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
+        "Quản lý Người dùng",
+    ],
+    # Staff handles sales and inventory tasks
+    "staff": [
+        "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho",
+    ]
 }
 MENU_STRUCTURE = {
     "📈 Nghiệp vụ": [
