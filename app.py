@@ -5,8 +5,6 @@ from datetime import datetime
 
 # --- Google/Firebase Imports ---
 from managers.firebase_client import FirebaseClient
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
 # --- Import Managers ---
 from managers.auth_manager import AuthManager
@@ -20,7 +18,6 @@ from managers.settings_manager import SettingsManager
 from managers.promotion_manager import PromotionManager
 from managers.cost_manager import CostManager
 from managers.price_manager import PriceManager
-from managers.product.image_handler import ImageHandler
 
 # --- Import UI Pages ---
 from ui.login_page import render_login_page
@@ -40,7 +37,7 @@ from ui.pnl_report_page import render_pnl_report_page
 
 st.set_page_config(layout="wide")
 
-# --- MENU PERMISSIONS & STRUCTURE (No changes needed here) ---
+# --- MENU PERMISSIONS & STRUCTURE ---
 MENU_PERMISSIONS = {
     "admin": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
@@ -79,68 +76,44 @@ MENU_STRUCTURE = {
 }
 
 def get_corrected_creds(secrets_key):
-    """
-    The final, correct, and direct method.
-    Reads credentials from Streamlit secrets, creates a dictionary,
-    and crucially fixes the 'private_key' newline corruption.
-    Returns the corrected dictionary, ready for in-memory use.
-    """
     creds_section = st.secrets[secrets_key]
     creds_dict = {key: creds_section[key] for key in creds_section.keys()}
-
-    # The most important step: Un-escape the newline characters in the private key.
     if 'private_key' in creds_dict:
         creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-    
     return creds_dict
 
 def init_managers():
     try:
-        # --- Initialize Firebase Client (nk-pos-47135) ---
         if 'firebase_client' not in st.session_state:
             firebase_creds_info = get_corrected_creds("firebase_credentials")
             pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
             st.session_state.firebase_client = FirebaseClient(firebase_creds_info, pyrebase_config)
-
-        # --- Initialize Google Drive Image Handler (nk-pos-482708) ---
-        if 'image_handler' not in st.session_state:
-            gdrive_creds_info = get_corrected_creds("gdrive_credentials")
-            folder_id = st.secrets["gdrive_folder_id"]
-            st.session_state.image_handler = ImageHandler(gdrive_creds_info, folder_id)
-
     except Exception as e:
         st.error(f"Lỗi nghiêm trọng khi khởi tạo credentials: {e}")
         st.stop()
 
-    # --- Initialize All Other Managers ---
     fb_client = st.session_state.firebase_client
 
-    # >> BẮT ĐẦU THAY ĐỔI THỨ TỰ KHỞI TẠO <<
-
-    # 1. Khởi tạo các manager không có phụ thuộc lẫn nhau
-    simple_managers = {
-        'branch_mgr': BranchManager, 'settings_mgr': SettingsManager, 
-        'inventory_mgr': InventoryManager, 'customer_mgr': CustomerManager,
-        'promotion_mgr': PromotionManager, 'cost_mgr': CostManager, 'price_mgr': PriceManager,
+    # Initialize all managers. ProductManager will now self-initialize its ImageHandler.
+    managers_to_init = {
+        'branch_mgr': (BranchManager, [fb_client]),
+        'settings_mgr': (SettingsManager, [fb_client]),
+        'inventory_mgr': (InventoryManager, [fb_client]),
+        'customer_mgr': (CustomerManager, [fb_client]),
+        'promotion_mgr': (PromotionManager, [fb_client]),
+        'cost_mgr': (CostManager, [fb_client]),
+        'price_mgr': (PriceManager, [fb_client]),
+        'product_mgr': (ProductManager, [fb_client]), # No more image_handler argument
     }
-    for mgr_name, mgr_class in simple_managers.items():
+    for mgr_name, (mgr_class, args) in managers_to_init.items():
         if mgr_name not in st.session_state:
-            st.session_state[mgr_name] = mgr_class(fb_client)
+            st.session_state[mgr_name] = mgr_class(*args)
 
-    # 2. Khởi tạo các manager có phụ thuộc đặc biệt
-    # AuthManager cần SettingsManager
+    # Initialize managers with dependencies
     if 'auth_mgr' not in st.session_state:
         st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
-
-    # ProductManager cần ImageHandler
-    if 'product_mgr' not in st.session_state:
-        st.session_state.product_mgr = ProductManager(fb_client, st.session_state.image_handler)
-
-    # ReportManager cần CostManager
     if 'report_mgr' not in st.session_state:
         st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
-
-    # POSManager cần rất nhiều manager khác
     if 'pos_mgr' not in st.session_state:
         st.session_state.pos_mgr = POSManager(
             firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
@@ -148,10 +121,8 @@ def init_managers():
             price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
         )
     
-    # >> KẾT THÚC THAY ĐỔI <<
     return True
 
-# --- Main App Logic (No changes needed) ---
 def display_sidebar():
     user_info = st.session_state.user
     st.sidebar.success(f"Xin chào, {user_info.get('display_name', 'Người dùng')}!")

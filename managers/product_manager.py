@@ -1,33 +1,48 @@
 
 import uuid
 import logging
+import streamlit as st
 from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud.firestore_v1.base_query import And, FieldFilter
 
 from .product.category_manager import CategoryManager
 from .product.unit_manager import UnitManager
+from .product.image_handler import ImageHandler
 
 class ProductManager:
-    def __init__(self, firebase_client, image_handler=None):
+    def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection = self.db.collection('products')
         self.category_manager = CategoryManager(self.db)
         self.unit_manager = UnitManager(self.db)
-        self.image_handler = image_handler
+        self.image_handler = self._initialize_image_handler()
 
-    # --- Category and Unit passthrough methods ---
+    def _initialize_image_handler(self):
+        if st.secrets.has_key("gcp_service_account") and st.secrets.has_key("google_drive_folder_id"):
+            try:
+                creds_info = dict(st.secrets["gcp_service_account"])
+                folder_id = st.secrets["google_drive_folder_id"]
+                if folder_id and creds_info:
+                    return ImageHandler(credentials_info=creds_info, folder_id=folder_id)
+            except Exception as e:
+                logging.error(f"Failed to initialize ImageHandler: {e}")
+        return None
+
     def get_categories(self): return self.category_manager.get_categories()
     def create_category(self, name, prefix): return self.category_manager.create_category(name, prefix)
     def get_units(self): return self.unit_manager.get_units()
     def create_unit(self, name): return self.unit_manager.create_unit(name)
 
-    def upload_image(self, file_obj, sku):
-        if self.image_handler:
-            # Directly call the upload_image method from the handler
-            # The handler itself is responsible for the entire upload logic.
-            return self.image_handler.upload_image(file_obj, sku)
-        logging.warning("Image Handler not configured. Image upload skipped.")
+    def _upload_and_update_image_url(self, sku, image_file):
+        if self.image_handler and image_file and sku:
+            try:
+                image_url = self.image_handler.upload_image(image_file, sku)
+                if image_url:
+                    self.collection.document(sku).update({'image_url': image_url})
+                    return image_url
+            except Exception as e:
+                logging.error(f"Image upload failed for {sku}: {e}")
         return None
 
     def create_product(self, product_data):
@@ -35,77 +50,65 @@ class ProductManager:
             return False, "Thiếu ID danh mục."
 
         cat_ref = self.category_manager.cat_col.document(product_data['category_id'])
+        image_file_to_upload = product_data.pop('image_file', None)
+
         transaction = self.db.transaction()
-
         @firestore.transactional
-        def update_in_transaction(trans, cat_ref, product_data):
-            try:
-                cat_snapshot = trans.get(cat_ref, field_paths=["prefix", "current_seq"])[0].to_dict()
-                prefix = cat_snapshot.get("prefix", "PRD")
-                current_seq = cat_snapshot.get("current_seq", 0)
-                new_seq = current_seq + 1
-                sku = f"{prefix}-{str(new_seq).zfill(4)}"
+        def _create_product_in_transaction(trans, cat_ref, product_data):
+            cat_snapshot = trans.get(cat_ref, field_paths=["prefix", "current_seq"])[0].to_dict()
+            prefix = cat_snapshot.get("prefix", "PRD")
+            current_seq = cat_snapshot.get("current_seq", 0)
+            new_seq = current_seq + 1
+            sku = f"{prefix}-{str(new_seq).zfill(4)}"
 
-                product_data['sku'] = sku
-                product_data['active'] = True
-                product_data['created_at'] = firestore.SERVER_TIMESTAMP
-                product_data['updated_at'] = firestore.SERVER_TIMESTAMP
-
-                # Now that we have the SKU, we can handle the image upload
-                if product_data.get('image_file'):
-                    image_file = product_data.pop('image_file') # Remove from DB data
-                    image_url = self.upload_image(image_file, sku)
-                    if image_url:
-                        product_data['image_url'] = image_url
-                    else:
-                        # Decide if you want to fail the whole process or just warn
-                        logging.warning(f"Image upload failed for {sku}, product created without image.")
-                        product_data['image_url'] = ""
-                
-                product_ref = self.collection.document(sku)
-                trans.set(product_ref, product_data)
-                trans.update(cat_ref, {"current_seq": new_seq})
-                return sku, None
-            except Exception as e:
-                logging.error(f"Transaction failed: {e}")
-                raise e
+            product_data['sku'] = sku
+            product_data['active'] = True
+            product_data['created_at'] = firestore.SERVER_TIMESTAMP
+            product_data['updated_at'] = firestore.SERVER_TIMESTAMP
+            product_data['image_url'] = ""
+            
+            product_ref = self.collection.document(sku)
+            trans.set(product_ref, product_data)
+            trans.update(cat_ref, {"current_seq": new_seq})
+            return sku
 
         try:
-            sku, error = update_in_transaction(transaction, cat_ref, product_data)
-            if error:
-                return False, error
+            sku = _create_product_in_transaction(transaction, cat_ref, product_data)
+            if not sku:
+                raise Exception("Failed to create product SKU in transaction.")
+
+            if image_file_to_upload:
+                self._upload_and_update_image_url(sku, image_file_to_upload)
+
             return True, f"Tạo sản phẩm '{product_data['name']}' với SKU '{sku}' thành công!"
         except Exception as e:
+            logging.error(f"Error during product creation for {product_data.get('name')}: {e}")
             return False, f"Lỗi khi tạo sản phẩm: {str(e)}"
 
     def update_product(self, sku, updates):
         if not sku or not isinstance(updates, dict):
             return False, "SKU hoặc dữ liệu cập nhật không hợp lệ."
         try:
-            # Handle image update separately
-            if 'image_file' in updates:
-                image_file = updates.pop('image_file')
-                if image_file:
-                    image_url = self.upload_image(image_file, sku)
-                    if image_url:
-                        updates['image_url'] = image_url
-                    else:
-                        # Don't update the image URL if upload fails
-                        logging.warning(f"Image update failed for {sku}. Keeping old image.")
+            image_file_to_upload = updates.pop('image_file', None)
+            if image_file_to_upload:
+                self._upload_and_update_image_url(sku, image_file_to_upload)
 
-            updates['updated_at'] = firestore.SERVER_TIMESTAMP
-            self.collection.document(sku).update(updates)
+            if updates: 
+                updates['updated_at'] = firestore.SERVER_TIMESTAMP
+                self.collection.document(sku).update(updates)
+            
             return True, f"Sản phẩm {sku} đã được cập nhật."
         except Exception as e:
             logging.error(f"Error updating product {sku}: {e}")
             return False, f"Lỗi khi cập nhật sản phẩm: {e}"
-    
+
     def set_product_active_status(self, sku, active: bool):
         return self.update_product(sku, {'active': active})
 
     def hard_delete_product(self, sku):
         try:
-            # Todo: Delete associated image from Google Drive if necessary
+            if self.image_handler:
+                self.image_handler.delete_image(sku)
             self.collection.document(sku).delete()
             return True, f"Sản phẩm {sku} đã được xóa vĩnh viễn."
         except Exception as e:
