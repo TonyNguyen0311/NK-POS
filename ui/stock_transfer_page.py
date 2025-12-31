@@ -13,7 +13,7 @@ def show_stock_transfer_page(branch_manager, inventory_manager, product_manager,
     user_id = user_info['uid']
     user_role = user_info.get('role', 'staff')
     all_branches = branch_manager.list_branches()
-    all_branches_map = {b['id']: b['name'] for b in all_branches}
+    all_branches_map = {b['id']: b.get('name', b['id']) for b in all_branches}
 
     from_branch_id = None
 
@@ -67,7 +67,8 @@ def show_stock_transfer_page(branch_manager, inventory_manager, product_manager,
 def render_create_transfer_form(from_branch_id, all_branches, inventory_manager, product_manager, user_id):
     st.header("Tạo Phiếu Luân Chuyển")
     
-    products = product_manager.get_products_for_business()
+    # FIXED: Changed get_products_for_business() to get_all_products()
+    products = product_manager.get_all_products()
     inventory = inventory_manager.get_inventory_by_branch(from_branch_id)
 
     with st.form("create_transfer_form", clear_on_submit=True):
@@ -75,7 +76,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
         to_branch_id = st.selectbox(
             "Chọn chi nhánh nhận hàng", 
             options=[b['id'] for b in other_branches],
-            format_func=lambda bid: f"{next((b['name'] for b in other_branches if b['id'] == bid), bid)}"
+            format_func=lambda bid: f"{next((b.get('name', bid) for b in other_branches if b['id'] == bid), bid)}"
         )
         
         st.subheader("Danh sách sản phẩm cần chuyển")
@@ -85,7 +86,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
 
         for i, item in enumerate(st.session_state.transfer_items):
             cols = st.columns([4, 2, 1])
-            cols[0].write(f"**{item['product_name']} ({item['sku']})**")
+            cols[0].write(f"**{item.get('product_name', item['sku'])} ({item['sku']})**")
             cols[1].write(f"Số lượng: {item['quantity']}")
             if cols[2].button(f"Xóa", key=f"del_{i}"):
                 st.session_state.transfer_items.pop(i)
@@ -103,8 +104,11 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
             st.form_submit_button("Tạo Phiếu Luân Chuyển", disabled=True)
             return
 
-        # FIXED: Corrected the typo from [''name''] to ['name']
-        selected_sku = form_cols[0].selectbox("Chọn sản phẩm", options=list(available_products.keys()), format_func=lambda sku: f"{available_products[sku]['name']} ({sku})")
+        selected_sku = form_cols[0].selectbox(
+            "Chọn sản phẩm", 
+            options=list(available_products.keys()), 
+            format_func=lambda sku: f"{available_products[sku].get('name', 'Sản phẩm không tên')} ({sku})"
+        )
         
         current_stock = inventory.get(selected_sku, {}).get('stock_quantity', 0)
         
@@ -126,7 +130,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
                         selected_product = available_products[selected_sku]
                         st.session_state.transfer_items.append({
                             'sku': selected_sku, 
-                            'product_name': selected_product['name'], 
+                            'product_name': selected_product.get('name', 'Sản phẩm không tên'), 
                             'cogs': selected_product.get('cogs', 0), 
                             'quantity': quantity
                         })
@@ -178,7 +182,7 @@ def render_outgoing_transfers(branch_id, all_branches_map, inventory_manager, us
             st.write(f"**Ghi chú:** {t.get('notes', 'N/A')}")
             st.write("**Sản phẩm:**")
             for item in t['items']:
-                st.write(f"- {item.get('product_name', item['sku'])}: {item['quantity']}")
+                st.write(f"- {item.get('product_name', item.get('sku', ''))}: {item.get('quantity', 0)}")
             
             if t['status'] == 'PENDING':
                 col1, col2 = st.columns(2)
@@ -220,7 +224,7 @@ def render_incoming_transfers(branch_id, all_branches_map, inventory_manager, us
             st.write(f"**Ghi chú:** {t.get('notes', 'N/A')}")
             st.write("**Sản phẩm:**")
             for item in t['items']:
-                st.write(f"- {item.get('product_name', item['sku'])}: {item['quantity']}")
+                st.write(f"- {item.get('product_name', item.get('sku', ''))}: {item.get('quantity', 0)}")
             
             if t['status'] == 'SHIPPED':
                 if st.button("Xác nhận Đã Nhận Hàng", key=f"receive_{t['id']}", use_container_width=True):
