@@ -81,15 +81,16 @@ MENU_STRUCTURE = {
 }
 
 def init_managers():
-    # --- Initialize Firebase Client (ROBUST & CORRECTED) ---
+    # --- Initialize Firebase Client (FINAL & CORRECTED) ---
     if 'firebase_client' not in st.session_state:
         try:
-            gcp_creds_full = st.secrets["gcp_service_account"]
-            pyrebase_config_dict = st.secrets["pyrebase_config"]
+            # FINAL FIX: Convert Secrets object to a standard Python dictionary
+            gcp_creds_full = dict(st.secrets["gcp_service_account"])
+            pyrebase_config_dict = dict(st.secrets["pyrebase_config"])
             
-            # ROBUSTNESS: Create a copy and remove non-Firebase keys to prevent errors
+            # Now that it's a dict, we can safely copy and manipulate it
             firebase_creds = gcp_creds_full.copy()
-            firebase_creds.pop("gdrive_folder_id", None) # Safely remove the GDrive key if it exists
+            firebase_creds.pop("gdrive_folder_id", None) 
 
             storage_bucket = st.secrets.get("firebase_storage_bucket") 
             if not storage_bucket:
@@ -107,7 +108,7 @@ def init_managers():
     # --- Initialize Google Drive Image Handler ---
     if 'image_handler' not in st.session_state:
         try:
-            gdrive_creds = st.secrets["gcp_service_account"]
+            gdrive_creds = dict(st.secrets["gcp_service_account"])
             folder_id = st.secrets["gdrive_folder_id"]
             st.session_state.image_handler = ImageHandler(gdrive_creds, folder_id)
         except KeyError as e:
