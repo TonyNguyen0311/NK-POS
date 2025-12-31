@@ -1,11 +1,9 @@
 
 import streamlit as st
 import json
-import tempfile
-import os
 from datetime import datetime
 
-# --- Google/Firebase Imports -- -
+# --- Google/Firebase Imports ---
 from managers.firebase_client import FirebaseClient
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -42,7 +40,7 @@ from ui.pnl_report_page import render_pnl_report_page
 
 st.set_page_config(layout="wide")
 
-# --- MENU PERMISSIONS ---
+# --- MENU PERMISSIONS & STRUCTURE (No changes needed here) ---
 MENU_PERMISSIONS = {
     "admin": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
@@ -56,8 +54,6 @@ MENU_PERMISSIONS = {
     ],
     "staff": ["Bán hàng (POS)", "Ghi nhận Chi phí"]
 }
-
-# --- NEW MENU STRUCTURE ---
 MENU_STRUCTURE = {
     "📈 Nghiệp vụ": [
         "Bán hàng (POS)",
@@ -82,58 +78,43 @@ MENU_STRUCTURE = {
     ]
 }
 
-def get_creds_from_secrets(creds_section_name):
+def get_corrected_creds(secrets_key):
     """
-    The definitive solution:
-    1. Reads a secrets section.
-    2. Manually creates a dictionary.
-    3. **Fixes the private_key newline corruption** caused by Streamlit.
-    4. Writes the corrected dictionary to a temporary JSON file.
-    5. Returns the path to this file.
+    The final, correct, and direct method.
+    Reads credentials from Streamlit secrets, creates a dictionary,
+    and crucially fixes the 'private_key' newline corruption.
+    Returns the corrected dictionary, ready for in-memory use.
     """
-    creds_section = st.secrets[creds_section_name]
-    creds_dict = {}
-    for key in creds_section.keys():
-        creds_dict[key] = creds_section[key]
+    creds_section = st.secrets[secrets_key]
+    creds_dict = {key: creds_section[key] for key in creds_section.keys()}
 
-    # The crucial fix: correct the private_key before writing to file
+    # The most important step: Un-escape the newline characters in the private key.
     if 'private_key' in creds_dict:
         creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-
-    # Create a temporary file to hold the corrected credentials
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
-        json.dump(creds_dict, temp_file)
-        return temp_file.name
+    
+    return creds_dict
 
 def init_managers():
-    firebase_creds_path = None
-    gdrive_creds_path = None
     try:
-        # --- Initialize Firebase Client (Project: nk-pos-47135) ---
+        # --- Initialize Firebase Client (nk-pos-47135) ---
         if 'firebase_client' not in st.session_state:
-            firebase_creds_path = get_creds_from_secrets("firebase_credentials")
+            firebase_creds_info = get_corrected_creds("firebase_credentials")
             pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
-            st.session_state.firebase_client = FirebaseClient(firebase_creds_path, pyrebase_config)
+            st.session_state.firebase_client = FirebaseClient(firebase_creds_info, pyrebase_config)
             st.info("✅ Đã kết nối tới Firebase (Database & Auth).")
 
-        # --- Initialize Google Drive Image Handler (Project: nk-pos-482708) ---
+        # --- Initialize Google Drive Image Handler (nk-pos-482708) ---
         if 'image_handler' not in st.session_state:
-            gdrive_creds_path = get_creds_from_secrets("gdrive_credentials")
+            gdrive_creds_info = get_corrected_creds("gdrive_credentials")
             folder_id = st.secrets["gdrive_folder_id"]
-            st.session_state.image_handler = ImageHandler(gdrive_creds_path, folder_id)
+            st.session_state.image_handler = ImageHandler(gdrive_creds_info, folder_id)
             st.info("✅ Đã kết nối tới Google Drive (Lưu trữ ảnh).")
 
     except Exception as e:
-        st.error(f"Lỗi khởi tạo credentials: {e}")
+        st.error(f"Lỗi nghiêm trọng khi khởi tạo credentials: {e}")
         st.stop()
-    finally:
-        # --- Clean up temporary files ---
-        if firebase_creds_path and os.path.exists(firebase_creds_path):
-            os.remove(firebase_creds_path)
-        if gdrive_creds_path and os.path.exists(gdrive_creds_path):
-            os.remove(gdrive_creds_path)
 
-    # --- Initialize All Other Managers (No changes needed here) ---
+    # --- Initialize All Other Managers (No changes needed) ---
     fb_client = st.session_state.firebase_client
     if 'product_mgr' not in st.session_state:
         st.session_state.product_mgr = ProductManager(fb_client, st.session_state.image_handler)
@@ -159,6 +140,7 @@ def init_managers():
         )
     return True
 
+# --- Main App Logic (No changes needed) ---
 def display_sidebar():
     user_info = st.session_state.user
     st.sidebar.success(f"Xin chào, {user_info.get('display_name', 'Người dùng')}!")

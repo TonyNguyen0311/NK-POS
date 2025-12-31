@@ -6,18 +6,20 @@ from googleapiclient.http import MediaIoBaseUpload
 import io
 
 class ImageHandler:
-    def __init__(self, credentials_input, folder_id):
+    def __init__(self, credentials_info, folder_id):
+        """Initializes the Drive service from a credentials dictionary."""
         self.folder_id = folder_id
         try:
-            # The input is now a file path, which is directly usable by service_account.Credentials.from_service_account_file
-            creds = service_account.Credentials.from_service_account_file(
-                credentials_input,
+            # Use from_service_account_info to load credentials from a dictionary
+            creds = service_account.Credentials.from_service_account_info(
+                credentials_info,
                 scopes=['https://www.googleapis.com/auth/drive']
             )
             self.drive_service = build('drive', 'v3', credentials=creds)
         except Exception as e:
             st.error(f"Failed to initialize Google Drive service: {e}")
-            self.drive_service = None
+            # Re-raise the exception to provide more detail in the main app log
+            raise e
 
     def upload_image(self, image_file, product_id):
         if not self.drive_service:
@@ -32,21 +34,17 @@ class ImageHandler:
                 'name': f'{product_id}.jpg',
                 'parents': [self.folder_id]
             }
-            # Create a BytesIO object from the uploader's buffer
             image_bytes = io.BytesIO(image_file.getvalue())
             media = MediaIoBaseUpload(image_bytes, mimetype='image/jpeg', resumable=True)
             
-            # Check if file with the same name already exists
             query = f"name='{file_metadata['name']}' and '{self.folder_id}' in parents"
             response = self.drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
             existing_files = response.get('files', [])
             
             if existing_files:
-                # Update the existing file
                 file_id = existing_files[0].get('id')
                 request = self.drive_service.files().update(fileId=file_id, media_body=media, fields='id, webViewLink')
             else:
-                # Create a new file
                 request = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink')
             
             file = request.execute()
