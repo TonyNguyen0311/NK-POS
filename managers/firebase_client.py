@@ -1,46 +1,40 @@
+
 import firebase_admin
-from firebase_admin import credentials, firestore, storage # Import storage
+from firebase_admin import credentials, firestore, storage
 import pyrebase
 import json
 import streamlit as st
 
 class FirebaseClient:
-    def __init__(self, credentials_input, pyrebase_config, storage_bucket=None):
+    def __init__(self, credentials_path, pyrebase_config):
         """
-        Khởi tạo kết nối Firebase, bao gồm Firestore (admin), Auth (pyrebase), và Storage.
+        Initializes Firebase connection using a credentials file path.
         """
-        # --- Khởi tạo Firebase Admin SDK (cho Firestore & Storage) ---
         if not firebase_admin._apps:
-            if isinstance(credentials_input, dict):
-                cred = credentials.Certificate(credentials_input)
-            else:
-                # This path is relative to the app's root directory
-                cred = credentials.Certificate(credentials_input)
-            
-            # Thêm cấu hình storage bucket nếu được cung cấp
-            app_options = {}
-            if storage_bucket:
-                app_options['storageBucket'] = storage_bucket
-            
-            firebase_admin.initialize_app(cred, app_options)
+            try:
+                cred = credentials.Certificate(credentials_path)
+                firebase_admin.initialize_app(cred, {
+                    'storageBucket': pyrebase_config.get("storageBucket")
+                })
+            except Exception as e:
+                st.error(f"Error initializing Firebase Admin SDK: {e}")
+                raise # Re-raise the exception to be caught by the caller
 
         self.db = firestore.client()
+        self.bucket = storage.bucket()
         
-        # Khởi tạo bucket nếu tên được cung cấp
-        if storage_bucket:
-            self.bucket = storage.bucket()
-        else:
-            self.bucket = None
-            st.warning("Firebase Storage chưa được cấu hình. Chức năng upload file sẽ bị vô hiệu hóa.")
+        # Initialize Pyrebase for Authentication
+        if not hasattr(st.session_state, 'pyrebase_app'):
+            try:
+                st.session_state.pyrebase_app = pyrebase.initialize_app(pyrebase_config)
+            except Exception as e:
+                st.error(f"Error initializing Pyrebase: {e}")
+                raise
         
-        # --- Khởi tạo Pyrebase (cho Authentication) ---
-        # Pyrebase tự quản lý việc khởi tạo app của riêng nó
-        firebase = pyrebase.initialize_app(pyrebase_config)
-        self.auth = firebase.auth()
+        self.auth = st.session_state.pyrebase_app.auth()
 
     def check_connection(self):
         try:
-            # Chỉ cần kiểm tra db và auth là đủ
             if self.db and self.auth:
                 return True
             return False

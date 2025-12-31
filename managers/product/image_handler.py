@@ -1,70 +1,58 @@
+
 import streamlit as st
-from google.oauth2.service_account import Credentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from datetime import datetime
-from PIL import Image
-import io
 from googleapiclient.http import MediaIoBaseUpload
+import io
 
 class ImageHandler:
-    """Handles image optimization and uploading to Google Drive."""
-
-    def __init__(self, gdrive_service_account_info, folder_id):
-        if not gdrive_service_account_info:
-            raise ValueError("Google Drive service account information is not provided.")
-        if not folder_id:
-            raise ValueError("Google Drive folder ID is not provided.")
-
-        creds = Credentials.from_service_account_info(
-            gdrive_service_account_info,
-            scopes=["https://www.googleapis.com/auth/drive"]
-        )
-        self.service = build('drive', 'v3', credentials=creds)
+    def __init__(self, credentials_input, folder_id):
         self.folder_id = folder_id
-
-    def optimize_image(self, uploaded_file, max_size=(1024, 1024), quality=85):
-        """Resizes and compresses the image."""
         try:
-            img = Image.open(uploaded_file)
-            img.thumbnail(max_size)
-            
-            if img.mode == 'RGBA':
-                img = img.convert('RGB')
-
-            buffer = io.BytesIO()
-            img.save(buffer, format='JPEG', quality=quality)
-            buffer.seek(0)
-            return buffer
+            # The input is now a file path, which is directly usable by service_account.Credentials.from_service_account_file
+            creds = service_account.Credentials.from_service_account_file(
+                credentials_input,
+                scopes=['https://www.googleapis.com/auth/drive']
+            )
+            self.drive_service = build('drive', 'v3', credentials=creds)
         except Exception as e:
-            st.error(f"Lỗi tối ưu hóa hình ảnh: {e}")
+            st.error(f"Failed to initialize Google Drive service: {e}")
+            self.drive_service = None
+
+    def upload_image(self, image_file, product_id):
+        if not self.drive_service:
+            st.error("Google Drive service is not available.")
             return None
 
-    def upload_image(self, image_buffer, product_name):
-        """Uploads the image buffer to Google Drive and returns the web view link."""
-        if image_buffer is None:
+        if image_file is None:
             return None
+
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_name = f"{product_name.replace(' ', '_')}_{timestamp}.jpg"
-
             file_metadata = {
-                'name': file_name,
+                'name': f'{product_id}.jpg',
                 'parents': [self.folder_id]
             }
+            # Create a BytesIO object from the uploader's buffer
+            image_bytes = io.BytesIO(image_file.getvalue())
+            media = MediaIoBaseUpload(image_bytes, mimetype='image/jpeg', resumable=True)
             
-            media = MediaIoBaseUpload(image_buffer, mimetype='image/jpeg', resumable=True)
+            # Check if file with the same name already exists
+            query = f"name='{file_metadata['name']}' and '{self.folder_id}' in parents"
+            response = self.drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
+            existing_files = response.get('files', [])
             
-            file = self.service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id, webViewLink'
-            ).execute()
+            if existing_files:
+                # Update the existing file
+                file_id = existing_files[0].get('id')
+                request = self.drive_service.files().update(fileId=file_id, media_body=media, fields='id, webViewLink')
+            else:
+                # Create a new file
+                request = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink')
             
-            file_id = file.get('id')
-            self.service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
-            
+            file = request.execute()
+            st.success(f"Image '{file_metadata['name']}' uploaded successfully!")
             return file.get('webViewLink')
 
         except Exception as e:
-            st.error(f"Lỗi tải ảnh lên Google Drive: {e}")
+            st.error(f"Error uploading image to Google Drive: {e}")
             return None

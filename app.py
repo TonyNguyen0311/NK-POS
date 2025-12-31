@@ -1,6 +1,8 @@
 
 import streamlit as st
 import json
+import tempfile
+import os
 from datetime import datetime
 
 # --- Google/Firebase Imports -- -
@@ -80,29 +82,26 @@ MENU_STRUCTURE = {
     ]
 }
 
-def build_creds_dict(creds_section):
-    """Manually builds a dictionary from a Streamlit Secrets section to preserve key formatting."""
-    creds_dict = {}
-    for key in creds_section.keys():
-        creds_dict[key] = creds_section[key]
-    return creds_dict
+def get_creds_from_secrets(creds_section):
+    """Creates a temporary JSON file from a Streamlit secrets section and returns the file path."""
+    creds_dict = {key: creds_section[key] for key in creds_section.keys()}
+    
+    # Use NamedTemporaryFile to ensure the file is created and accessible
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+        json.dump(creds_dict, temp_file)
+        return temp_file.name # Return the path to the temporary file
 
 def init_managers():
     # --- Initialize Firebase Client (Project: nk-pos-47135) ---
     if 'firebase_client' not in st.session_state:
         try:
-            # FINAL & CORRECT FIX: Manually build the credentials dictionary
-            # This avoids the st.secrets -> dict() conversion that corrupts the private_key
-            firebase_creds_dict = build_creds_dict(st.secrets["firebase_credentials"])
-            pyrebase_config = build_creds_dict(st.secrets["pyrebase_config"])
+            firebase_creds_path = get_creds_from_secrets(st.secrets["firebase_credentials"])
+            pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
 
-            st.session_state.firebase_client = FirebaseClient(firebase_creds_dict, pyrebase_config, None)
+            st.session_state.firebase_client = FirebaseClient(firebase_creds_path, pyrebase_config)
             st.info("✅ Đã kết nối tới Firebase (Database & Auth).")
+            os.remove(firebase_creds_path) # Clean up the temp file
 
-        except KeyError as e:
-            st.error(f"Lỗi cấu hình Firebase: Không tìm thấy secret key '{e.args[0]}'.")
-            st.info("Vui lòng kiểm tra lại các khối [firebase_credentials] và [pyrebase_config] trong secrets.")
-            st.stop()
         except Exception as e:
             st.error(f"Lỗi khởi tạo Firebase: {e}")
             st.stop()
@@ -110,12 +109,12 @@ def init_managers():
     # --- Initialize Google Drive Image Handler (Project: nk-pos-482708) ---
     if 'image_handler' not in st.session_state:
         try:
-            # Apply the same manual dictionary build fix for GDrive credentials
-            gdrive_creds_dict = build_creds_dict(st.secrets["gdrive_credentials"])
+            gdrive_creds_path = get_creds_from_secrets(st.secrets["gdrive_credentials"])
             folder_id = st.secrets["gdrive_folder_id"]
             
-            st.session_state.image_handler = ImageHandler(gdrive_creds_dict, folder_id)
+            st.session_state.image_handler = ImageHandler(gdrive_creds_path, folder_id)
             st.info("✅ Đã kết nối tới Google Drive (Lưu trữ ảnh).")
+            os.remove(gdrive_creds_path) # Clean up the temp file
 
         except KeyError as e:
             st.warning(f"Google Drive chưa được cấu hình (thiếu secret '{e.args[0]}'). Chức năng upload ảnh sẽ bị vô hiệu hóa.")
@@ -124,8 +123,7 @@ def init_managers():
             st.error(f"Lỗi khởi tạo Google Drive Uploader: {e}")
             st.session_state.image_handler = None
 
-
-    # --- Initialize All Other Managers ---
+    # --- Initialize All Other Managers (No changes needed here) ---
     fb_client = st.session_state.firebase_client
     if 'product_mgr' not in st.session_state:
         st.session_state.product_mgr = ProductManager(fb_client, st.session_state.image_handler)
@@ -150,6 +148,7 @@ def init_managers():
             price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
         )
     return True
+
 
 def display_sidebar():
     user_info = st.session_state.user
