@@ -1,6 +1,7 @@
 
 import bcrypt
 import uuid
+import json
 from datetime import datetime, timedelta
 import streamlit as st
 import pyrebase 
@@ -33,11 +34,24 @@ class AuthManager:
         if 'user' in st.session_state and st.session_state.user is not None:
             return True
 
-        refresh_token = self.cookies.get('refresh_token')
-        if not refresh_token:
+        cookie_data_str = self.cookies.get('refresh_token')
+        if not cookie_data_str:
             return False
 
         try:
+            cookie_data = json.loads(cookie_data_str)
+            expires_at_str = cookie_data.get('expires_at')
+            refresh_token = cookie_data.get('token')
+
+            if not expires_at_str or not refresh_token:
+                self.logout()
+                return False
+
+            expires_at = datetime.fromisoformat(expires_at_str)
+            if datetime.now() > expires_at:
+                self.logout()
+                return False
+
             user_session = self.auth.refresh(refresh_token)
             uid = user_session['userId']
             
@@ -55,6 +69,9 @@ class AuthManager:
             st.session_state['user'] = user_data
             return True
 
+        except (json.JSONDecodeError, TypeError, KeyError):
+            self.logout()
+            return False
         except Exception:
             self.logout()
             return False
@@ -81,7 +98,11 @@ class AuthManager:
                 persistence_days = session_config.get('persistence_days', 0)
                 if persistence_days > 0 and 'refreshToken' in user:
                     expires_at = datetime.now() + timedelta(days=persistence_days)
-                    self.cookies.set('refresh_token', user['refreshToken'], expires_at=expires_at)
+                    cookie_data = {
+                        'token': user['refreshToken'],
+                        'expires_at': expires_at.isoformat()
+                    }
+                    self.cookies['refresh_token'] = json.dumps(cookie_data)
 
                 return ('SUCCESS', user_data)
             else:
