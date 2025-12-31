@@ -9,4 +9,4 @@ google-auth-oauthlib
 setuptools
 bcrypt
 plotly
-streamlit-cookies-manager
+streamlit-cookies-manager>=0.2.0

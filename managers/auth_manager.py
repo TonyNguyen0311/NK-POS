@@ -13,14 +13,9 @@ class AuthManager:
         self.users_col = self.db.collection('users')
         self.settings_mgr = settings_mgr
 
-        session_config = self.settings_mgr.get_session_config()
-        persistence_days = session_config.get('persistence_days', 0)
-        expires = datetime.now() + timedelta(days=persistence_days)
-
         self.cookies = EncryptedCookieManager(
             password=st.secrets.get("cookie_secret_key", "a_default_secret_key_that_is_not_safe"),
-            prefix="nk-pos/auth/",
-            expires_at=expires
+            prefix="nk-pos/auth/"
         )
         if not self.cookies.ready():
             st.stop()
@@ -81,7 +76,8 @@ class AuthManager:
                     session_config = self.settings_mgr.get_session_config()
                     persistence_days = session_config.get('persistence_days', 0)
                     if persistence_days > 0 and 'refreshToken' in user:
-                        self.cookies['refresh_token'] = user['refreshToken']
+                        expires = datetime.now() + timedelta(days=persistence_days)
+                        self.cookies.set('refresh_token', user['refreshToken'], expires_at=expires)
 
                     return user_data
             return None
@@ -125,7 +121,8 @@ class AuthManager:
                 persistence_days = session_config.get('persistence_days', 0)
                 
                 if persistence_days > 0 and 'refreshToken' in user_session:
-                    self.cookies['refresh_token'] = user_session['refreshToken']
+                    expires = datetime.now() + timedelta(days=persistence_days)
+                    self.cookies.set('refresh_token', user_session['refreshToken'], expires_at=expires)
                 
                 st.success("Nâng cấp tài khoản thành công! Tự động đăng nhập.")
                 return user_data
@@ -153,6 +150,7 @@ class AuthManager:
     def has_users(self):
         docs = self.users_col.limit(1).get()
         return len(list(docs)) > 0
+
 
     def list_users(self):
         docs = self.users_col.order_by("display_name").stream()
