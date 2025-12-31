@@ -40,7 +40,7 @@ from ui.pnl_report_page import render_pnl_report_page
 
 st.set_page_config(layout="wide")
 
-# --- MENU PERMISSIONS & STRUCTURE (No changes needed here) ---
+# --- MENU PERMISSIONS & STRUCTURE ---
 MENU_PERMISSIONS = {
     "admin": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
@@ -79,45 +79,27 @@ MENU_STRUCTURE = {
 }
 
 def get_corrected_creds(secrets_key):
-    """
-    The final, correct, and direct method.
-    Reads credentials from Streamlit secrets, creates a dictionary,
-    and crucially fixes the 'private_key' newline corruption.
-    Returns the corrected dictionary, ready for in-memory use.
-    """
     creds_section = st.secrets[secrets_key]
     creds_dict = {key: creds_section[key] for key in creds_section.keys()}
-
-    # The most important step: Un-escape the newline characters in the private key.
     if 'private_key' in creds_dict:
         creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-    
     return creds_dict
 
 def init_managers():
     try:
-        # --- Initialize Firebase Client (nk-pos-47135) ---
         if 'firebase_client' not in st.session_state:
             firebase_creds_info = get_corrected_creds("firebase_credentials")
             pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
             st.session_state.firebase_client = FirebaseClient(firebase_creds_info, pyrebase_config)
-
-        # --- Initialize Google Drive Image Handler (nk-pos-482708) ---
         if 'image_handler' not in st.session_state:
             gdrive_creds_info = get_corrected_creds("gdrive_credentials")
             folder_id = st.secrets["gdrive_folder_id"]
             st.session_state.image_handler = ImageHandler(gdrive_creds_info, folder_id)
-
     except Exception as e:
         st.error(f"Lỗi nghiêm trọng khi khởi tạo credentials: {e}")
         st.stop()
 
-    # --- Initialize All Other Managers ---
     fb_client = st.session_state.firebase_client
-
-    # >> BẮT ĐẦU THAY ĐỔI THỨ TỰ KHỞI TẠO <<
-
-    # 1. Khởi tạo các manager không có phụ thuộc lẫn nhau
     simple_managers = {
         'branch_mgr': BranchManager, 'settings_mgr': SettingsManager, 
         'inventory_mgr': InventoryManager, 'customer_mgr': CustomerManager,
@@ -127,31 +109,20 @@ def init_managers():
         if mgr_name not in st.session_state:
             st.session_state[mgr_name] = mgr_class(fb_client)
 
-    # 2. Khởi tạo các manager có phụ thuộc đặc biệt
-    # AuthManager cần SettingsManager
     if 'auth_mgr' not in st.session_state:
         st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
-
-    # ProductManager cần ImageHandler
     if 'product_mgr' not in st.session_state:
         st.session_state.product_mgr = ProductManager(fb_client, st.session_state.image_handler)
-
-    # ReportManager cần CostManager
     if 'report_mgr' not in st.session_state:
         st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
-
-    # POSManager cần rất nhiều manager khác
     if 'pos_mgr' not in st.session_state:
         st.session_state.pos_mgr = POSManager(
             firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
             customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
             price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
         )
-    
-    # >> KẾT THÚC THAY ĐỔI <<
     return True
 
-# --- Main App Logic (No changes needed) ---
 def display_sidebar():
     user_info = st.session_state.user
     st.sidebar.success(f"Xin chào, {user_info.get('display_name', 'Người dùng')}!")
@@ -179,19 +150,34 @@ def display_sidebar():
         st.rerun()
 
 def main():
-    if not init_managers(): return
+    if not init_managers():
+        return
 
     auth_mgr = st.session_state.auth_mgr
     branch_mgr = st.session_state.branch_mgr
-    auth_mgr.check_cookie_and_re_auth()
 
-    if 'user' not in st.session_state or st.session_state.user is None:
+    # --- LOGIC XÁC THỰC ĐƯỢC CẬP NHẬT ---
+    # 1. Kiểm tra xem người dùng đã đăng nhập trong session chưa.
+    is_authenticated = 'user' in st.session_state and st.session_state.user is not None
+
+    # 2. Nếu chưa, thử tái xác thực bằng cookie. 
+    #    Hàm check_cookie_and_re_auth() sẽ in ra các thông báo gỡ lỗi.
+    if not is_authenticated:
+        is_authenticated = auth_mgr.check_cookie_and_re_auth()
+
+    # 3. SAU KHI đã thử, bây giờ mới quyết định hiển thị trang nào.
+    #    Cách này đảm bảo các thông báo gỡ lỗi sẽ được hiển thị.
+    if not is_authenticated:
         render_login_page(auth_mgr, branch_mgr)
-        return
+        st.stop() # Dừng hoàn toàn để trang đăng nhập hiển thị đúng
+    # --- KẾT THÚC LOGIC XÁC THỰC ---
 
+    # Nếu đã xác thực, hiển thị giao diện chính
     display_sidebar()
     page = st.session_state.get('page')
-    if not page: st.info("Vui lòng chọn chức năng."); return
+    if not page:
+        st.info("Vui lòng chọn chức năng.")
+        st.stop()
 
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
@@ -210,8 +196,10 @@ def main():
     }
 
     renderer = page_renderers.get(page)
-    if renderer: renderer()
-    else: st.warning(f"Trang '{page}' đang phát triển.")
+    if renderer: 
+        renderer()
+    else: 
+        st.warning(f"Trang '{page}' đang phát triển.")
 
 if __name__ == "__main__":
     main()
