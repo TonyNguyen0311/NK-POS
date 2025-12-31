@@ -8,23 +8,15 @@ from google.cloud.firestore_v1.base_query import And, FieldFilter
 # Import the sub-managers
 from .product.category_manager import CategoryManager
 from .product.unit_manager import UnitManager
-# Note: We no longer initialize ImageHandler here, it's passed in.
 
 class ProductManager:
-    # MODIFIED: __init__ now accepts an image_handler instance
     def __init__(self, firebase_client, image_handler=None):
         self.db = firebase_client.db
         self.collection = self.db.collection('products')
-        
-        # Initialize sub-managers
         self.category_manager = CategoryManager(self.db)
         self.unit_manager = UnitManager(self.db)
-        
-        # MODIFIED: Assign the pre-configured image_handler
-        self.image_handler = image_handler 
+        self.image_handler = image_handler
 
-    # --- Method Delegation --- 
-    # Delegate category and unit methods to their respective managers
     def get_categories(self):
         return self.category_manager.get_categories()
 
@@ -37,53 +29,45 @@ class ProductManager:
     def create_unit(self, name):
         return self.unit_manager.create_unit(name)
 
-    # Delegate image upload to the image handler
     def upload_image(self, file_obj, filename):
-        # This now calls the Google Drive uploader if it was passed in
         if self.image_handler:
-            return self.image_handler.optimize_and_upload_image(file_obj, filename)
-        else:
-            logging.warning("Image Handler not configured. Image upload skipped.")
-            return None
-
-    # --- Core Product Logic (Remains in ProductManager) ---
+            # The handler now contains the logic for optimization and upload
+            optimized_buffer = self.image_handler.optimize_image(file_obj)
+            if optimized_buffer:
+                return self.image_handler.upload_image(optimized_buffer, filename)
+        logging.warning("Image Handler not configured or image optimization failed. Image upload skipped.")
+        return None
 
     def create_product(self, product_data):
         if not product_data.get('category_id'):
             return False, "Thiếu ID danh mục."
 
+        # REMOVED cost_price from the data being processed
+        product_data.pop('cost_price', None)
+
         cat_ref = self.category_manager.cat_col.document(product_data['category_id'])
-        
-        # Use a transaction to ensure atomic update of the category sequence and product creation
         transaction = self.db.transaction()
-        
+
         @firestore.transactional
         def update_in_transaction(trans, cat_ref, product_data):
             try:
                 cat_snapshot = trans.get(cat_ref, field_paths=["prefix", "current_seq"])[0].to_dict()
-                
                 prefix = cat_snapshot.get("prefix", "PRD")
                 current_seq = cat_snapshot.get("current_seq", 0)
                 new_seq = current_seq + 1
-                
-                # Generate the new SKU
-                sku = f"{prefix}{str(new_seq).zfill(6)}"
+                sku = f"{prefix}-{str(new_seq).zfill(4)}" # Standardized SKU format
+
                 product_data['sku'] = sku
                 product_data['active'] = True
                 product_data['created_at'] = firestore.SERVER_TIMESTAMP
 
-                # Create the new product document
                 product_ref = self.collection.document(sku)
                 trans.set(product_ref, product_data)
-                
-                # Update the sequence number in the category document
                 trans.update(cat_ref, {"current_seq": new_seq})
-                
                 return sku, None
             except Exception as e:
-                # This will cause the transaction to fail and roll back
                 logging.error(f"Transaction failed during product creation: {e}")
-                raise e # Re-raise to ensure transaction rollback
+                raise e
 
         try:
             sku, error = update_in_transaction(transaction, cat_ref, product_data)
@@ -98,7 +82,6 @@ class ProductManager:
         self.collection.document(sku).update(updates)
 
     def get_all_products(self):
-        """Fetches all active products. This is a foundational, safe method."""
         try:
             query = self.collection.where(filter=FieldFilter("active", "==", True))
             docs = query.stream()
@@ -116,7 +99,6 @@ class ProductManager:
             return []
 
     def get_listed_products_for_branch(self, branch_id: str):
-        """Gets products listed for a specific branch, using the safer get_all_products."""
         try:
             all_active_products = self.get_all_products()
             results = []

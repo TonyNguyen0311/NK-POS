@@ -62,11 +62,9 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
             cat_name = c2.selectbox("**Danh mục**", options=list(cat_opts.keys()) if cat_opts else [])
             unit_name = c3.selectbox("**Đơn vị**", options=list(unit_opts.keys()) if unit_opts else [])
 
-            c4, c5 = st.columns(2)
-            barcode = c4.text_input("Barcode (Nếu có)")
-            cost_price = c5.number_input("Giá vốn tham khảo (VNĐ)", min_value=0, step=1000)
+            # REMOVED reference cost price, barcode now takes full width
+            barcode = st.text_input("Barcode (Nếu có)")
             
-            # --- RE-ENABLED IMAGE UPLOAD ---
             image_file = st.file_uploader("Ảnh sản phẩm", type=['png', 'jpg', 'jpeg'])
 
             submitted = st.form_submit_button("Lưu vào Danh mục")
@@ -75,9 +73,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                     st.error("Tên sản phẩm và Danh mục là bắt buộc!")
                 else:
                     img_url = "" # Default to empty string
-                    # --- RE-ENABLED IMAGE UPLOAD LOGIC ---
                     if image_file:
-                        # Check if the image handler is available before attempting upload
                         if prod_mgr.image_handler:
                             with st.spinner("Đang tối ưu và tải ảnh lên Google Drive..."):
                                 img_url = prod_mgr.upload_image(image_file, image_file.name)
@@ -86,13 +82,12 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                         else:
                             st.warning("Chức năng tải ảnh chưa được cấu hình. Sản phẩm sẽ được tạo không có ảnh.")
                     
-                    # Product data, without sales price
+                    # REMOVED cost_price from data dictionary
                     data = {
                         "name": name,
                         "barcode": barcode,
                         "category_id": cat_opts.get(cat_name),
                         "unit_id": unit_opts.get(unit_name),
-                        "cost_price": cost_price, # Reference cost price
                         "image_url": img_url
                     }
                     
