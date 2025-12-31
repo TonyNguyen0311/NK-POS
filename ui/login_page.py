@@ -62,23 +62,19 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
             with st.form("login_form"):
                 username = st.text_input("Tên đăng nhập")
                 password = st.text_input("Mật khẩu", type="password")
+                remember_me = st.checkbox("Ghi nhớ đăng nhập trên thiết bị này")
                 login_button = st.form_submit_button("Đăng nhập")
 
                 if login_button:
-                    # The login function now returns a tuple (status, data)
-                    status, data = auth_mgr.login(username, password)
+                    status, data = auth_mgr.login(username, password, remember_me)
 
                     if status == 'SUCCESS':
                         st.success("Đăng nhập thành công!")
-                        # The user data is already in session_state from the auth_mgr
-                        time.sleep(1) # Short pause to show the message
+                        time.sleep(1)
                         st.rerun() 
                     elif status == 'MIGRATED':
-                        # Show the migration success message and let the user log in again
                         st.info(data)
                     elif status == 'FAILED':
-                        # Show the specific error message from the auth_mgr
                         st.error(data)
                     else:
-                        # Fallback for any unexpected status
                         st.error("Đã xảy ra lỗi không xác định. Vui lòng thử lại.")
