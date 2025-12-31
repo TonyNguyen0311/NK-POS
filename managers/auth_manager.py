@@ -45,17 +45,20 @@ class AuthManager:
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 if not user_data.get('active', False):
-                    self.cookies.delete('refresh_token') 
+                    if 'refresh_token' in self.cookies:
+                        del self.cookies['refresh_token']
                     return False
                 
                 user_data['uid'] = uid
                 st.session_state['user'] = user_data
                 return True
             else:
-                self.cookies.delete('refresh_token')
+                if 'refresh_token' in self.cookies:
+                    del self.cookies['refresh_token']
                 return False
         except Exception:
-            self.cookies.delete('refresh_token')
+            if 'refresh_token' in self.cookies:
+                del self.cookies['refresh_token']
             return False
 
     def login(self, username, password):
@@ -90,8 +93,8 @@ class AuthManager:
                 session_config = self.settings_mgr.get_session_config()
                 persistence_days = session_config.get('persistence_days', 0)
                 if persistence_days > 0 and 'refreshToken' in user:
-                    expires = datetime.now() + timedelta(days=persistence_days)
-                    self.cookies.set('refresh_token', user['refreshToken'], expires_at=expires)
+                    # The library uses dict-like syntax, not a .set() method.
+                    self.cookies['refresh_token'] = user['refreshToken']
 
                 return ('SUCCESS', user_data)
             else:
@@ -105,33 +108,29 @@ class AuthManager:
             except (ValueError, KeyError):
                 return ('FAILED', f"Lỗi không xác định từ Firebase: {e}")
 
-
             # If password is just wrong for an existing user, fail fast.
             if error_message == 'INVALID_PASSWORD':
                 return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
 
-            # If user is not in Firebase Auth, proceed to legacy check.
+            # If user is not in Firebase Auth, it might be a legacy user OR a brand new user that hasn't propagated yet.
             if error_message == 'EMAIL_NOT_FOUND':
-                # --- Legacy User Migration Flow ---
-                all_users_stream = self.users_col.stream()
-                found_user_doc = None
-                for doc in all_users_stream:
-                    user_data_legacy = doc.to_dict()
-                    db_username = user_data_legacy.get('username')
-                    if db_username and db_username.lower() == normalized_username:
-                        found_user_doc = doc
-                        break
+                # Check for legacy user first
+                all_users_stream = self.users_col.where("username", "==", normalized_username).limit(1).stream()
+                legacy_docs = list(all_users_stream)
 
-                if not found_user_doc:
+                if not legacy_docs:
+                     # Not a legacy user, and not found in Auth => straight failure.
                     return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
 
+                found_user_doc = legacy_docs[0]
                 user_data = found_user_doc.to_dict()
                 password_hash = user_data.get("password_hash")
 
+                # If it's a legacy user, it MUST have a password_hash.
                 if not password_hash or not self._check_password(password, password_hash):
                     return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
 
-                # Password is correct, proceed with migration
+                # Password is correct for legacy user, proceed with migration
                 try:
                     new_user_record = self.auth.create_user_with_email_and_password(email, password)
                     new_uid = new_user_record['localId']
@@ -148,16 +147,17 @@ class AuthManager:
                     return ('MIGRATED', "Tài khoản của bạn đã được nâng cấp. Vui lòng đăng nhập lại.")
 
                 except requests.exceptions.HTTPError as e_migrate:
-                    # Handle migration-specific errors
                     try:
                         migrate_error_json = e_migrate.response.json()['error']
                         if migrate_error_json['message'] == "EMAIL_EXISTS":
-                            return ('FAILED', "Lỗi: Không thể nâng cấp tài khoản. Username đã tồn tại trong hệ thống mới. Vui lòng liên hệ quản trị viên.")
-                        return ('FAILED', f"Lỗi không xác định khi nâng cấp tài khoản: {migrate_error_json['message']}")
+                            # This can happen in a race condition. The user was created but our check failed.
+                            # We can just tell them to try logging in again.
+                            return ('FAILED', "Tài khoản đã tồn tại. Vui lòng thử đăng nhập lại.")
+                        return ('FAILED', f"Lỗi nâng cấp: {migrate_error_json['message']}")
                     except (ValueError, KeyError):
-                        return ('FAILED', f"Lỗi không xác định khi nâng cấp tài khoản: {e_migrate}")
+                        return ('FAILED', f"Lỗi không xác định khi nâng cấp: {e_migrate}")
                 except Exception as e_migrate_general:
-                     return ('FAILED', f"Lỗi hệ thống khi nâng cấp tài khoản: {e_migrate_general}")
+                     return ('FAILED', f"Lỗi hệ thống khi nâng cấp: {e_migrate_general}")
 
             # Handle other Firebase auth errors
             return ('FAILED', f"Lỗi xác thực: {error_message}")
@@ -170,8 +170,8 @@ class AuthManager:
         if 'user' in st.session_state:
             del st.session_state['user']
         
-        if self.cookies.get('refresh_token'):
-            self.cookies.delete('refresh_token')
+        if 'refresh_token' in self.cookies:
+            del self.cookies['refresh_token']
             
         st.query_params.clear()
         st.rerun()
@@ -182,7 +182,6 @@ class AuthManager:
     def has_users(self):
         docs = self.users_col.limit(1).get()
         return len(list(docs)) > 0
-
 
     def list_users(self):
         docs = self.users_col.order_by("display_name").stream()
@@ -211,7 +210,7 @@ class AuthManager:
                 if error_json['message'] == "EMAIL_EXISTS":
                     raise ValueError(f"Lỗi: Username '{normalized_username}' đã được sử dụng.")
             except (ValueError, KeyError):
-                raise e # Re-raise original error if parsing fails
+                pass # Let the generic error below handle it
             raise e
 
         data['uid'] = uid
