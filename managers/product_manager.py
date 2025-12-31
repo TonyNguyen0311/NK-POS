@@ -1,4 +1,5 @@
 import uuid
+import logging
 from datetime import datetime
 import streamlit as st
 from google.cloud import firestore
@@ -13,7 +14,6 @@ class ProductManager:
         self.cat_col = self.db.collection('categories')
         self.unit_col = self.db.collection('units')
 
-    # ... (các hàm khác giữ nguyên)
     # --- XỬ LÝ ẢNH ---
     def upload_image(self, file_obj, filename):
         if not self.bucket: return None
@@ -24,17 +24,21 @@ class ProductManager:
             blob.make_public()
             return blob.public_url
         except Exception as e:
-            print(f"Upload error: {e}")
+            logging.error(f"Upload error: {e}")
             return None
 
     # --- HELPER: LẤY DATA AN TOÀN ---
     def _get_safe_list(self, collection_ref):
-        results = []
-        for doc in collection_ref.stream():
-            data = doc.to_dict()
-            data['id'] = doc.id 
-            results.append(data)
-        return results
+        try:
+            results = []
+            for doc in collection_ref.stream():
+                data = doc.to_dict()
+                data['id'] = doc.id 
+                results.append(data)
+            return results
+        except Exception as e:
+            logging.error(f"Error getting safe list from collection {collection_ref.id}: {e}")
+            return []
 
     # --- DANH MỤC --
     def create_category(self, name, prefix):
@@ -62,7 +66,7 @@ class ProductManager:
     def get_units(self):
         return self._get_safe_list(self.unit_col)
 
-    # --- SẢN PHẨM (LOGIC TRANSACTION THỦ CÔNG - FIX LỖI) ---
+    # --- SẢN PHẨM ---
     def create_product(self, product_data):
         if not product_data.get('category_id'):
             return False, "Thiếu Category ID"
@@ -100,59 +104,70 @@ class ProductManager:
             sku = run_transaction(transaction, cat_ref, product_data)
             return True, f"Tạo thành công: {sku}"
         except Exception as e:
+            logging.error(f"Lỗi tạo sản phẩm: {e}")
             return False, f"Lỗi tạo sản phẩm: {str(e)}"
 
     def update_product(self, sku, updates):
         self.collection.document(sku).update(updates)
 
-    def list_products(self, filters: dict | None = None):
-        query = self.collection.where("active", "==", True)
-        docs = query.stream()
-        results = []
-        for doc in docs:
-            d = doc.to_dict()
-            d['sku'] = doc.id
-            results.append(d)
-        return results
+    def get_all_products(self):
+        """
+        Lấy tất cả sản phẩm đang active. Trả về list rỗng nếu có lỗi.
+        Đổi tên từ list_products và thêm error handling.
+        """
+        try:
+            query = self.collection.where("active", "==", True)
+            docs = query.stream()
+            results = []
+            for doc in docs:
+                d = doc.to_dict()
+                d['sku'] = doc.id
+                # Đồng bộ với UI, thêm trường 'cogs' từ 'cost_price'
+                d['cogs'] = d.get('cost_price', 0)
+                results.append(d)
+            return results
+        except Exception as e:
+            logging.error(f"Error fetching all products: {e}")
+            return []
 
     def get_listed_products_for_branch(self, branch_id: str):
-        """
-        Lấy danh sách các sản phẩm được niêm yết cho một chi nhánh.
-        WORKAROUND: Lọc thủ công trong Python để tránh bug của thư viện và lỗi dữ liệu.
-        """
-        all_active_products = self.collection.where("active", "==", True).stream()
-        
-        results = []
-        for doc in all_active_products:
-            d = doc.to_dict()
-            d['sku'] = doc.id
-            
-            price_info = d.get('price_by_branch', {}).get(branch_id)
-            
-            # SỬA LỖI DỮ LIỆU: Chỉ xử lý nếu price_info là một dictionary
-            if isinstance(price_info, dict) and price_info.get('active') is True:
-                results.append(d)
-                
-        return results
+        try:
+            all_active_products = self.get_all_products()
+            results = []
+            for product in all_active_products:
+                price_info = product.get('price_by_branch', {}).get(branch_id)
+                if isinstance(price_info, dict) and price_info.get('active') is True:
+                    results.append(product)
+            return results
+        except Exception as e:
+            logging.error(f"Error getting listed products for branch {branch_id}: {e}")
+            return []
 
     def delete_product(self, sku):
         self.collection.document(sku).update({"active": False})
 
     def get_all_products_with_cost(self):
         """
-        Retrieves all active products with essential data for simulation.
+        Lấy tất cả sản phẩm đang active với các trường dữ liệu cần thiết.
+        Đã thêm error handling.
         """
-        query = self.collection.where("active", "==", True)
-        docs = query.stream()
-        results = []
-        for doc in docs:
-            d = doc.to_dict()
-            product_data = {
-                'sku': doc.id,
-                'name': d.get('name'),
-                'price_default': d.get('price_default'),
-                'price_by_branch': d.get('price_by_branch', {}),
-                'cost_price': d.get('cost_price', 0)
-            }
-            results.append(product_data)
-        return results
+        try:
+            query = self.collection.where("active", "==", True)
+            docs = query.stream()
+            results = []
+            for doc in docs:
+                d = doc.to_dict()
+                product_data = {
+                    'sku': doc.id,
+                    'name': d.get('name'),
+                    'price_default': d.get('price_default'),
+                    'price_by_branch': d.get('price_by_branch', {}),
+                    # Sử dụng 'cogs' để đồng bộ, nhưng vẫn giữ 'cost_price' để tương thích ngược
+                    'cost_price': d.get('cost_price', 0),
+                    'cogs': d.get('cost_price', 0) 
+                }
+                results.append(product_data)
+            return results
+        except Exception as e:
+            logging.error(f"Error in get_all_products_with_cost: {e}")
+            return []
