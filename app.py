@@ -3,21 +3,10 @@ import streamlit as st
 import json
 from datetime import datetime
 
-# ================== DEBUG CODE START ==================
-# In ra tất cả các secret mà Streamlit Cloud thấy được.
-# Dòng này sẽ giúp chúng ta chẩn đoán vấn đề.
-st.error("BẮT ĐẦU CHẾ ĐỘ DEBUG SECRETS")
-try:
-    st.write("st.secrets object:", st.secrets.to_dict())
-except Exception as e:
-    st.write("Không thể chuyển đổi st.secrets sang dictionary:", str(e))
-st.error("KẾT THÚC CHẾ ĐỘ DEBUG SECRETS")
-# =================== DEBUG CODE END ===================
-
 # --- Google/Firebase Imports ---
 from managers.firebase_client import FirebaseClient
 from google.oauth2 import service_account
-from googleapient.discovery import build
+from googleapiclient.discovery import build
 
 # --- Import Managers ---
 from managers.auth_manager import AuthManager
