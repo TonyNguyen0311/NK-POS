@@ -114,18 +114,8 @@ class AuthManager:
                 self.users_col.document(new_uid).set(user_data)
                 self.users_col.document(found_user_doc.id).delete()
 
-                user_session = self.auth.sign_in_with_email_and_password(email, password)
-
-                st.session_state['user'] = user_data
-                session_config = self.settings_mgr.get_session_config()
-                persistence_days = session_config.get('persistence_days', 0)
-                
-                if persistence_days > 0 and 'refreshToken' in user_session:
-                    expires = datetime.now() + timedelta(days=persistence_days)
-                    self.cookies.set('refresh_token', user_session['refreshToken'], expires_at=expires)
-                
-                st.success("Nâng cấp tài khoản thành công! Tự động đăng nhập.")
-                return user_data
+                st.success("Tài khoản của bạn đã được nâng cấp. Vui lòng đăng nhập lại.")
+                return None
 
             except Exception as e:
                 if "EMAIL_EXISTS" in str(e):
