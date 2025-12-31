@@ -84,14 +84,11 @@ def init_managers():
     # --- Initialize Firebase Client (Project: nk-pos-47135) ---
     if 'firebase_client' not in st.session_state:
         try:
-            firebase_creds = dict(st.secrets["firebase_credentials"])
-            # HOTFIX: Correctly format the private key by replacing literal '\n' with actual newlines
-            if "private_key" in firebase_creds:
-                firebase_creds["private_key"] = firebase_creds["private_key"].replace("\\n", "\n")
+            # FINAL FIX: Pass the Secrets object directly without converting to dict.
+            # This preserves the private key's formatting.
+            firebase_creds = st.secrets["firebase_credentials"]
+            pyrebase_config = dict(st.secrets["pyrebase_config"]) # Pyrebase needs a dict, this is fine.
 
-            pyrebase_config = dict(st.secrets["pyrebase_config"])
-            
-            # Pass None for storage_bucket as it's deprecated in our new flow
             st.session_state.firebase_client = FirebaseClient(firebase_creds, pyrebase_config, None)
             st.info("✅ Đã kết nối tới Firebase (Database & Auth).")
 
@@ -106,11 +103,8 @@ def init_managers():
     # --- Initialize Google Drive Image Handler (Project: nk-pos-482708) ---
     if 'image_handler' not in st.session_state:
         try:
-            gdrive_creds = dict(st.secrets["gdrive_credentials"])
-            # HOTFIX: Correctly format the private key for Google Drive as well
-            if "private_key" in gdrive_creds:
-                gdrive_creds["private_key"] = gdrive_creds["private_key"].replace("\\n", "\n")
-
+            # FINAL FIX: Pass the Secrets object directly for GDrive as well.
+            gdrive_creds = st.secrets["gdrive_credentials"]
             folder_id = st.secrets["gdrive_folder_id"]
             
             st.session_state.image_handler = ImageHandler(gdrive_creds, folder_id)
