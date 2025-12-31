@@ -14,11 +14,7 @@ class AuthManager:
         self.settings_mgr = settings_mgr
 
         # Khởi tạo cookie manager. Yêu cầu phải có secret key trong st.secrets
-        # Ví dụ: trong file .streamlit/secrets.toml, thêm dòng: 
-        # cookie_secret_key = "ABCDEF1234567890"
-        # Bạn nên tự tạo một chuỗi ngẫu nhiên, dài và an toàn cho khóa này.
         self.cookies = EncryptedCookieManager(
-            # Tham số đúng là 'password', không phải 'secret'
             password=st.secrets.get("cookie_secret_key", "a_default_secret_key_that_is_not_safe"),
             prefix="nk-pos/auth/"
         )
@@ -34,10 +30,6 @@ class AuthManager:
         return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
     def check_cookie_and_re_auth(self):
-        """Kiểm tra cookie và tự động tái xác thực.
-        Ưu tiên 1: Session state (người dùng vừa đăng nhập).
-        Ưu tiên 2: Cookie (người dùng quay lại ứng dụng).
-        """
         if 'user' in st.session_state and st.session_state.user is not None:
             return True
 
@@ -46,29 +38,29 @@ class AuthManager:
             return False
 
         try:
-            # Dùng refresh token để lấy id token mới
             user_session = self.auth.refresh(refresh_token)
             uid = user_session['userId']
             
             user_doc = self.users_col.document(uid).get()
             if user_doc.exists:
                 user_data = user_doc.to_dict()
-                # Kiểm tra lại xem user còn active không
                 if not user_data.get('active', False):
-                    self.cookies.delete('refresh_token') # Dọn dẹp cookie
+                    self.cookies.delete('refresh_token') 
                     return False
                 
                 user_data['uid'] = uid
                 st.session_state['user'] = user_data
                 return True
             else:
-                # User đã bị xóa khỏi hệ thống, dọn dẹp cookie
                 self.cookies.delete('refresh_token')
                 return False
         except Exception as e:
-            # Refresh token hết hạn hoặc không hợp lệ
+            # --- THAY ĐỔI ĐỂ GỠ LỖI ---
+            # Tạm thời hiển thị lỗi để chẩn đoán vấn đề tái xác thực
+            st.error(f"Lỗi tái xác thực cookie (vui lòng gửi lỗi này cho dev): {e}")
             self.cookies.delete('refresh_token')
             return False
+            # --- KẾT THÚC THAY ĐỔI ---
 
     def login(self, username, password):
         normalized_username = username.lower()
@@ -86,7 +78,6 @@ class AuthManager:
                     self.users_col.document(uid).update({"last_login": datetime.now().isoformat()})
                     st.session_state['user'] = user_data
 
-                    # --- LOGIC GHI NHỚ ĐĂNG NHẬP BẰNG COOKIE ---
                     session_config = self.settings_mgr.get_session_config()
                     persistence_days = session_config.get('persistence_days', 0)
 
@@ -96,12 +87,10 @@ class AuthManager:
                             user['refreshToken'],
                             expires_at=datetime.now() + timedelta(days=persistence_days)
                         )
-                    # --- KẾT THÚC LOGIC COOKIE ---
                     return user_data
             return None
 
         except Exception:
-            # Logic fallback cho user cũ (bcrypt), không hỗ trợ ghi nhớ đăng nhập
             all_users_stream = self.users_col.stream()
             found_user_doc = None
             for doc in all_users_stream:
@@ -127,7 +116,6 @@ class AuthManager:
         if 'user' in st.session_state:
             del st.session_state['user']
         
-        # Xóa cookie để chấm dứt phiên ghi nhớ
         self.cookies.delete('refresh_token')
         
         st.query_params.clear()
