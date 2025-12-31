@@ -33,33 +33,34 @@ class AuthManager:
         if 'user' in st.session_state and st.session_state.user is not None:
             return True
 
-        refresh_token = self.cookies.get('refresh_token')
-
-        if not refresh_token:
-            return False
-
         try:
+            refresh_token_data = self.cookies.get('refresh_token')
+            if not refresh_token_data:
+                return False
+
+            # The cookie value is now a tuple: (token, expiration_datetime)
+            # We only need the token for the refresh operation.
+            refresh_token = refresh_token_data[0] 
+
             user_session = self.auth.refresh(refresh_token)
             uid = user_session['userId']
             
             user_doc = self.users_col.document(uid).get()
-            if user_doc.exists:
-                user_data = user_doc.to_dict()
-                if not user_data.get('active', False):
-                    if 'refresh_token' in self.cookies:
-                        del self.cookies['refresh_token']
-                    return False
-                
-                user_data['uid'] = uid
-                st.session_state['user'] = user_data
-                return True
-            else:
-                if 'refresh_token' in self.cookies:
-                    del self.cookies['refresh_token']
+            if not user_doc.exists:
+                self.logout(clear_cookie=True)
                 return False
+
+            user_data = user_doc.to_dict()
+            if not user_data.get('active', False):
+                self.logout(clear_cookie=True)
+                return False
+            
+            user_data['uid'] = uid
+            st.session_state['user'] = user_data
+            return True
+
         except Exception:
-            if 'refresh_token' in self.cookies:
-                del self.cookies['refresh_token']
+            self.logout(clear_cookie=True)
             return False
 
     def login(self, username, password):
@@ -83,11 +84,12 @@ class AuthManager:
                 session_config = self.settings_mgr.get_session_config()
                 persistence_days = session_config.get('persistence_days', 0)
                 if persistence_days > 0 and 'refreshToken' in user:
-                    expires = datetime.now() + timedelta(days=persistence_days)
-                    self.cookies['refresh_token'] = (user['refreshToken'], expires)
+                    expires_at = datetime.now() + timedelta(days=persistence_days)
+                    self.cookies['refresh_token'] = (user['refreshToken'], expires_at)
 
                 return ('SUCCESS', user_data)
             else:
+                self.logout(clear_cookie=True) 
                 return ('FAILED', "Đăng nhập thất bại. Dữ liệu người dùng không tồn tại.")
 
         except requests.exceptions.HTTPError as e:
@@ -97,57 +99,58 @@ class AuthManager:
             except (ValueError, KeyError):
                 return ('FAILED', f"Lỗi không xác định từ Firebase: {e}")
 
-            if error_message == 'INVALID_PASSWORD':
-                return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
-
-            if error_message == 'EMAIL_NOT_FOUND':
-                all_users_stream = self.users_col.where("username", "==", normalized_username).limit(1).stream()
-                legacy_docs = list(all_users_stream)
-
-                if not legacy_docs:
+            if error_message in ['INVALID_PASSWORD', 'EMAIL_NOT_FOUND']:
+                 # Simplified logic for legacy user check
+                legacy_user_query = self.users_col.where("username", "==", normalized_username).limit(1).stream()
+                legacy_user_docs = list(legacy_user_query)
+                if not legacy_user_docs:
                     return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
-
-                found_user_doc = legacy_docs[0]
-                user_data = found_user_doc.to_dict()
-                password_hash = user_data.get("password_hash")
+                
+                legacy_user_doc = legacy_user_docs[0]
+                legacy_user_data = legacy_user_doc.to_dict()
+                password_hash = legacy_user_data.get('password_hash')
 
                 if not password_hash or not self._check_password(password, password_hash):
                     return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
-
+                
+                # Legacy user validated, now migrate
                 try:
                     new_user_record = self.auth.create_user_with_email_and_password(email, password)
                     new_uid = new_user_record['localId']
-                    user_data.pop('password_hash', None)
-                    user_data['uid'] = new_uid
-                    user_data['updated_at'] = datetime.now().isoformat()
-                    if 'created_at' not in user_data:
-                        user_data['created_at'] = datetime.now().isoformat()
-                    self.users_col.document(new_uid).set(user_data)
-                    self.users_col.document(found_user_doc.id).delete()
+
+                    legacy_user_data.pop('password_hash', None) 
+                    legacy_user_data['uid'] = new_uid
+                    legacy_user_data['updated_at'] = datetime.now().isoformat()
+                    if 'created_at' not in legacy_user_data:
+                         legacy_user_data['created_at'] = datetime.now().isoformat()
+                    
+                    self.users_col.document(new_uid).set(legacy_user_data)
+                    self.users_col.document(legacy_user_doc.id).delete()
                     return ('MIGRATED', "Tài khoản của bạn đã được nâng cấp. Vui lòng đăng nhập lại.")
-                except requests.exceptions.HTTPError as e_migrate:
-                    try:
-                        migrate_error_json = e_migrate.response.json()['error']
-                        if migrate_error_json['message'] == "EMAIL_EXISTS":
-                            return ('FAILED', "Tài khoản đã tồn tại. Vui lòng thử đăng nhập lại.")
-                        return ('FAILED', f"Lỗi nâng cấp: {migrate_error_json['message']}")
-                    except (ValueError, KeyError):
-                        return ('FAILED', f"Lỗi không xác định khi nâng cấp: {e_migrate}")
-                except Exception as e_migrate_general:
-                     return ('FAILED', f"Lỗi hệ thống khi nâng cấp: {e_migrate_general}")
+
+                except requests.exceptions.HTTPError as migrate_e:
+                    migrate_error_msg = migrate_e.response.json().get('error', {}).get('message', '')
+                    if migrate_error_msg == 'EMAIL_EXISTS':
+                        # This can happen in a race condition. The user should just try logging in again.
+                        return ('FAILED', "Tài khoản đã tồn tại. Vui lòng thử đăng nhập lại.")
+                    return ('FAILED', f"Lỗi nâng cấp tài khoản: {migrate_error_msg}")
+                except Exception as migrate_e_general:
+                    return ('FAILED', f"Lỗi hệ thống khi nâng cấp tài khoản: {migrate_e_general}")
+            
             return ('FAILED', f"Lỗi xác thực: {error_message}")
         except Exception as e:
+            st.error(f"Đã xảy ra lỗi không mong muốn trong quá trình đăng nhập: {e}")
             return ('FAILED', f"Đã xảy ra lỗi không mong muốn: {e}")
 
-    def logout(self):
+    def logout(self, clear_cookie=True):
         if 'user' in st.session_state:
             del st.session_state['user']
         
-        if 'refresh_token' in self.cookies:
-            del self.cookies['refresh_token']
+        if clear_cookie and 'refresh_token' in self.cookies:
+            # Delete the cookie by setting its expiration to the past
+            self.cookies.delete('refresh_token')
             
         st.query_params.clear()
-        st.rerun()
 
     def get_current_user_info(self):
         return st.session_state.get('user')
