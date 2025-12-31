@@ -101,43 +101,54 @@ def init_managers():
             firebase_creds_info = get_corrected_creds("firebase_credentials")
             pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
             st.session_state.firebase_client = FirebaseClient(firebase_creds_info, pyrebase_config)
-            st.info("✅ Đã kết nối tới Firebase (Database & Auth).")
 
         # --- Initialize Google Drive Image Handler (nk-pos-482708) ---
         if 'image_handler' not in st.session_state:
             gdrive_creds_info = get_corrected_creds("gdrive_credentials")
             folder_id = st.secrets["gdrive_folder_id"]
             st.session_state.image_handler = ImageHandler(gdrive_creds_info, folder_id)
-            st.info("✅ Đã kết nối tới Google Drive (Lưu trữ ảnh).")
 
     except Exception as e:
         st.error(f"Lỗi nghiêm trọng khi khởi tạo credentials: {e}")
         st.stop()
 
-    # --- Initialize All Other Managers (No changes needed) ---
+    # --- Initialize All Other Managers ---
     fb_client = st.session_state.firebase_client
-    if 'product_mgr' not in st.session_state:
-        st.session_state.product_mgr = ProductManager(fb_client, st.session_state.image_handler)
 
-    other_managers = {
-        'auth_mgr': AuthManager, 'branch_mgr': BranchManager,
+    # >> BẮT ĐẦU THAY ĐỔI THỨ TỰ KHỞI TẠO <<
+
+    # 1. Khởi tạo các manager không có phụ thuộc lẫn nhau
+    simple_managers = {
+        'branch_mgr': BranchManager, 'settings_mgr': SettingsManager, 
         'inventory_mgr': InventoryManager, 'customer_mgr': CustomerManager,
-        'settings_mgr': SettingsManager, 'promotion_mgr': PromotionManager,
-        'cost_mgr': CostManager, 'price_mgr': PriceManager,
+        'promotion_mgr': PromotionManager, 'cost_mgr': CostManager, 'price_mgr': PriceManager,
     }
-    for mgr_name, mgr_class in other_managers.items():
+    for mgr_name, mgr_class in simple_managers.items():
         if mgr_name not in st.session_state:
             st.session_state[mgr_name] = mgr_class(fb_client)
 
+    # 2. Khởi tạo các manager có phụ thuộc đặc biệt
+    # AuthManager cần SettingsManager
+    if 'auth_mgr' not in st.session_state:
+        st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
+
+    # ProductManager cần ImageHandler
+    if 'product_mgr' not in st.session_state:
+        st.session_state.product_mgr = ProductManager(fb_client, st.session_state.image_handler)
+
+    # ReportManager cần CostManager
     if 'report_mgr' not in st.session_state:
         st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
 
+    # POSManager cần rất nhiều manager khác
     if 'pos_mgr' not in st.session_state:
         st.session_state.pos_mgr = POSManager(
             firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
             customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
             price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
         )
+    
+    # >> KẾT THÚC THAY ĐỔI <<
     return True
 
 # --- Main App Logic (No changes needed) ---

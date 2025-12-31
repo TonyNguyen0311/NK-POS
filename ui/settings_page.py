@@ -11,11 +11,13 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
         st.error("Truy cập bị từ chối. Chức năng này chỉ dành cho Quản trị viên.")
         return
 
+    current_settings = settings_mgr.get_settings()
+
     # Cấu trúc tab để dễ dàng mở rộng trong tương lai
-    tab1, tab2, tab3 = st.tabs(["Chi nhánh", "Thông tin Kinh doanh", "Cài đặt khác"])
+    tab1, tab2, tab3 = st.tabs(["Cài đặt Chung", "Thông tin Kinh doanh", "Bảo mật"])
 
     # ===================================
-    # TAB 1: QUẢN LÝ CHI NHÁNH
+    # TAB 1: CÀI ĐẶT CHUNG (PREVIOUSLY BRANCHES)
     # ===================================
     with tab1:
         st.subheader("Quản lý Chi nhánh")
@@ -42,7 +44,7 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
         
         # Danh sách chi nhánh hiện có
         st.write("**Các chi nhánh hiện có:**")
-        branches = branch_mgr.list_branches()
+        branches = branch_mgr.list_branches(active_only=False) # Lấy tất cả chi nhánh
         if not branches:
             st.info("Chưa có chi nhánh nào được tạo.")
         else:
@@ -54,16 +56,13 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
                         st.text_input("Địa chỉ", value=branch.get('address', ''), key=f"addr_{branch['id']}", disabled=True)
                     with b_c2:
                         if st.button("Xóa", key=f"del_{branch['id']}", use_container_width=True):
-                            # Thêm confirm box trước khi xóa
                             st.session_state[f'confirm_delete_{branch['id']}'] = True
             
-                # Logic cho confirmation dialog
                 if st.session_state.get(f'confirm_delete_{branch['id']}'):
                     st.warning(f"Bạn có chắc muốn xóa chi nhánh '{branch['name']}'? Hành động này không thể hoàn tác.")
                     cd_c1, cd_c2 = st.columns(2)
                     if cd_c1.button("Xác nhận Xóa", key=f"confirm_btn_{branch['id']}", type="primary"):
                         try:
-                            # Cần kiểm tra xem chi nhánh có đang được sử dụng không
                             branch_mgr.delete_branch(branch['id'])
                             st.success("Đã xóa thành công!")
                             del st.session_state[f'confirm_delete_{branch['id']}'] 
@@ -79,7 +78,6 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
     # ===================================
     with tab2:
         st.subheader("Thông tin Doanh nghiệp/Cửa hàng")
-        current_settings = settings_mgr.get_settings()
         business_info = current_settings.get('business_info', {})
 
         with st.form("business_info_form"):
@@ -89,39 +87,36 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
             address = st.text_area("Địa chỉ đăng ký kinh doanh", value=business_info.get('address', ''))
 
             if st.form_submit_button("Lưu thông tin", type="primary"):
-                new_info = {
+                current_settings['business_info'] = {
                     'name': name,
                     'tax_code': tax_code,
                     'phone': phone,
                     'address': address
                 }
-                settings_mgr.save_setting('business_info', new_info)
+                settings_mgr.save_settings(current_settings)
                 st.success("Đã cập nhật thông tin doanh nghiệp.")
 
     # ===================================
-    # TAB 3: CÀI ĐẶT KHÁC
+    # TAB 3: BẢO MẬT (PREVIOUSLY CÀI ĐẶT KHÁC)
     # ===================================
     with tab3:
-        st.subheader("Cài đặt phiên đăng nhập")
-        current_settings = settings_mgr.get_settings()
+        st.subheader("Cài đặt Phiên đăng nhập")
+        
+        persistence_days = current_settings.get('session_persistence_days', 0)
 
-        timeout_options = {
-            "30 phút": 30,
-            "60 phút (mặc định)": 60,
-            "120 phút": 120,
-            "Không bao giờ": "never"
-        }
+        with st.form("session_settings_form"):
+            new_persistence_days = st.number_input(
+                "Thời gian ghi nhớ đăng nhập (số ngày)",
+                min_value=0,
+                max_value=365, # Giới hạn 1 năm để đảm bảo an toàn
+                value=persistence_days,
+                step=1,
+                help="Đặt số ngày mà hệ thống sẽ ghi nhớ đăng nhập của người dùng trên trình duyệt. Đặt là 0 để yêu cầu đăng nhập mỗi khi trình duyệt tắt."
+            )
 
-        current_timeout_val = current_settings.get('session_timeout_minutes', 60)
-        current_option_key = next((key for key, value in timeout_options.items() if value == current_timeout_val), "60 phút (mặc định)")
+            if st.form_submit_button("Lưu Cài đặt Phiên", type="primary"):
+                current_settings['session_persistence_days'] = new_persistence_days
+                settings_mgr.save_settings(current_settings)
+                st.success(f"Đã lưu cài đặt. Thời gian ghi nhớ đăng nhập là {new_persistence_days} ngày.")
+                st.rerun()
 
-        new_timeout_key = st.selectbox(
-            "Thời gian tự động đăng xuất khi không hoạt động",
-            options=list(timeout_options.keys()),
-            index=list(timeout_options.keys()).index(current_option_key)
-        )
-
-        if st.button("Lưu cài đặt phiên", type="primary"):
-            new_timeout_val = timeout_options[new_timeout_key]
-            settings_mgr.save_setting('session_timeout_minutes', new_timeout_val)
-            st.success("Đã lưu cài đặt phiên đăng nhập!")
