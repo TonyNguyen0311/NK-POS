@@ -82,46 +82,56 @@ MENU_STRUCTURE = {
     ]
 }
 
-def get_creds_from_secrets(creds_section):
-    """Creates a temporary JSON file from a Streamlit secrets section and returns the file path."""
-    creds_dict = {key: creds_section[key] for key in creds_section.keys()}
-    
-    # Use NamedTemporaryFile to ensure the file is created and accessible
+def get_creds_from_secrets(creds_section_name):
+    """
+    The definitive solution:
+    1. Reads a secrets section.
+    2. Manually creates a dictionary.
+    3. **Fixes the private_key newline corruption** caused by Streamlit.
+    4. Writes the corrected dictionary to a temporary JSON file.
+    5. Returns the path to this file.
+    """
+    creds_section = st.secrets[creds_section_name]
+    creds_dict = {}
+    for key in creds_section.keys():
+        creds_dict[key] = creds_section[key]
+
+    # The crucial fix: correct the private_key before writing to file
+    if 'private_key' in creds_dict:
+        creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+
+    # Create a temporary file to hold the corrected credentials
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
         json.dump(creds_dict, temp_file)
-        return temp_file.name # Return the path to the temporary file
+        return temp_file.name
 
 def init_managers():
-    # --- Initialize Firebase Client (Project: nk-pos-47135) ---
-    if 'firebase_client' not in st.session_state:
-        try:
-            firebase_creds_path = get_creds_from_secrets(st.secrets["firebase_credentials"])
+    firebase_creds_path = None
+    gdrive_creds_path = None
+    try:
+        # --- Initialize Firebase Client (Project: nk-pos-47135) ---
+        if 'firebase_client' not in st.session_state:
+            firebase_creds_path = get_creds_from_secrets("firebase_credentials")
             pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
-
             st.session_state.firebase_client = FirebaseClient(firebase_creds_path, pyrebase_config)
             st.info("✅ Đã kết nối tới Firebase (Database & Auth).")
-            os.remove(firebase_creds_path) # Clean up the temp file
 
-        except Exception as e:
-            st.error(f"Lỗi khởi tạo Firebase: {e}")
-            st.stop()
-
-    # --- Initialize Google Drive Image Handler (Project: nk-pos-482708) ---
-    if 'image_handler' not in st.session_state:
-        try:
-            gdrive_creds_path = get_creds_from_secrets(st.secrets["gdrive_credentials"])
+        # --- Initialize Google Drive Image Handler (Project: nk-pos-482708) ---
+        if 'image_handler' not in st.session_state:
+            gdrive_creds_path = get_creds_from_secrets("gdrive_credentials")
             folder_id = st.secrets["gdrive_folder_id"]
-            
             st.session_state.image_handler = ImageHandler(gdrive_creds_path, folder_id)
             st.info("✅ Đã kết nối tới Google Drive (Lưu trữ ảnh).")
-            os.remove(gdrive_creds_path) # Clean up the temp file
 
-        except KeyError as e:
-            st.warning(f"Google Drive chưa được cấu hình (thiếu secret '{e.args[0]}'). Chức năng upload ảnh sẽ bị vô hiệu hóa.")
-            st.session_state.image_handler = None
-        except Exception as e:
-            st.error(f"Lỗi khởi tạo Google Drive Uploader: {e}")
-            st.session_state.image_handler = None
+    except Exception as e:
+        st.error(f"Lỗi khởi tạo credentials: {e}")
+        st.stop()
+    finally:
+        # --- Clean up temporary files ---
+        if firebase_creds_path and os.path.exists(firebase_creds_path):
+            os.remove(firebase_creds_path)
+        if gdrive_creds_path and os.path.exists(gdrive_creds_path):
+            os.remove(gdrive_creds_path)
 
     # --- Initialize All Other Managers (No changes needed here) ---
     fb_client = st.session_state.firebase_client
@@ -148,7 +158,6 @@ def init_managers():
             price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
         )
     return True
-
 
 def display_sidebar():
     user_info = st.session_state.user
