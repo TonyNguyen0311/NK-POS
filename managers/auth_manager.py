@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import streamlit as st
 import pyrebase 
 from streamlit_cookies_manager import EncryptedCookieManager
+import requests
 
 class AuthManager:
     def __init__(self, firebase_client, settings_mgr):
@@ -58,71 +59,112 @@ class AuthManager:
             return False
 
     def login(self, username, password):
+        """
+        Logs in a user or migrates a legacy user.
+
+        Returns:
+            tuple: A tuple containing the status and data.
+                   - ('SUCCESS', user_data): On successful login.
+                   - ('MIGRATED', message): On successful legacy user migration.
+                   - ('FAILED', error_message): On any failure.
+        """
         normalized_username = username.lower()
         email = f"{normalized_username}@email.placeholder.com"
 
         try:
+            # Standard login for users already in Firebase Auth
             user = self.auth.sign_in_with_email_and_password(email, password)
             uid = user['localId']
             
             user_doc = self.users_col.document(uid).get()
             if user_doc.exists:
                 user_data = user_doc.to_dict()
+                if not user_data.get('active', False):
+                    return ('FAILED', "Tài khoản của bạn đã bị vô hiệu hóa.")
+
                 user_data['uid'] = uid
-                if user_data.get('active', False):
-                    self.users_col.document(uid).update({"last_login": datetime.now().isoformat()})
-                    st.session_state['user'] = user_data
+                self.users_col.document(uid).update({"last_login": datetime.now().isoformat()})
+                st.session_state['user'] = user_data
 
-                    session_config = self.settings_mgr.get_session_config()
-                    persistence_days = session_config.get('persistence_days', 0)
-                    if persistence_days > 0 and 'refreshToken' in user:
-                        expires = datetime.now() + timedelta(days=persistence_days)
-                        self.cookies.set('refresh_token', user['refreshToken'], expires_at=expires)
+                # Set persistence cookie
+                session_config = self.settings_mgr.get_session_config()
+                persistence_days = session_config.get('persistence_days', 0)
+                if persistence_days > 0 and 'refreshToken' in user:
+                    expires = datetime.now() + timedelta(days=persistence_days)
+                    self.cookies.set('refresh_token', user['refreshToken'], expires_at=expires)
 
-                    return user_data
-            return None
+                return ('SUCCESS', user_data)
+            else:
+                # This case is unlikely but handled for safety
+                return ('FAILED', "Đăng nhập thất bại. Dữ liệu người dùng không tồn tại.")
 
-        except Exception:
-            all_users_stream = self.users_col.stream()
-            found_user_doc = None
-            for doc in all_users_stream:
-                user_data_legacy = doc.to_dict()
-                db_username = user_data_legacy.get('username')
-                if db_username and db_username.lower() == normalized_username:
-                    found_user_doc = doc
-                    break
-
-            if not found_user_doc:
-                return None
-
-            user_data = found_user_doc.to_dict()
-            password_hash = user_data.get("password_hash")
-
-            if not password_hash or not self._check_password(password, password_hash):
-                return None
-
+        except requests.exceptions.HTTPError as e:
             try:
-                new_user_record = self.auth.create_user_with_email_and_password(email, password)
-                new_uid = new_user_record['localId']
+                error_json = e.response.json()['error']
+                error_message = error_json['message']
+            except (ValueError, KeyError):
+                return ('FAILED', f"Lỗi không xác định từ Firebase: {e}")
 
-                user_data.pop('password_hash', None)
-                user_data['uid'] = new_uid
-                user_data['updated_at'] = datetime.now().isoformat()
-                if 'created_at' not in user_data:
-                    user_data['created_at'] = datetime.now().isoformat()
 
-                self.users_col.document(new_uid).set(user_data)
-                self.users_col.document(found_user_doc.id).delete()
+            # If password is just wrong for an existing user, fail fast.
+            if error_message == 'INVALID_PASSWORD':
+                return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
 
-                st.success("Tài khoản của bạn đã được nâng cấp. Vui lòng đăng nhập lại.")
-                return None
+            # If user is not in Firebase Auth, proceed to legacy check.
+            if error_message == 'EMAIL_NOT_FOUND':
+                # --- Legacy User Migration Flow ---
+                all_users_stream = self.users_col.stream()
+                found_user_doc = None
+                for doc in all_users_stream:
+                    user_data_legacy = doc.to_dict()
+                    db_username = user_data_legacy.get('username')
+                    if db_username and db_username.lower() == normalized_username:
+                        found_user_doc = doc
+                        break
 
-            except Exception as e:
-                if "EMAIL_EXISTS" in str(e):
-                    st.error("Lỗi: Không thể nâng cấp tài khoản. Username đã tồn tại trong hệ thống mới. Vui lòng liên hệ quản trị viên.")
-                else:
-                    st.error(f"Lỗi không xác định khi nâng cấp tài khoản: {e}")
-                return None
+                if not found_user_doc:
+                    return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
+
+                user_data = found_user_doc.to_dict()
+                password_hash = user_data.get("password_hash")
+
+                if not password_hash or not self._check_password(password, password_hash):
+                    return ('FAILED', "Sai tên đăng nhập hoặc mật khẩu.")
+
+                # Password is correct, proceed with migration
+                try:
+                    new_user_record = self.auth.create_user_with_email_and_password(email, password)
+                    new_uid = new_user_record['localId']
+
+                    user_data.pop('password_hash', None)
+                    user_data['uid'] = new_uid
+                    user_data['updated_at'] = datetime.now().isoformat()
+                    if 'created_at' not in user_data:
+                        user_data['created_at'] = datetime.now().isoformat()
+
+                    self.users_col.document(new_uid).set(user_data)
+                    self.users_col.document(found_user_doc.id).delete()
+
+                    return ('MIGRATED', "Tài khoản của bạn đã được nâng cấp. Vui lòng đăng nhập lại.")
+
+                except requests.exceptions.HTTPError as e_migrate:
+                    # Handle migration-specific errors
+                    try:
+                        migrate_error_json = e_migrate.response.json()['error']
+                        if migrate_error_json['message'] == "EMAIL_EXISTS":
+                            return ('FAILED', "Lỗi: Không thể nâng cấp tài khoản. Username đã tồn tại trong hệ thống mới. Vui lòng liên hệ quản trị viên.")
+                        return ('FAILED', f"Lỗi không xác định khi nâng cấp tài khoản: {migrate_error_json['message']}")
+                    except (ValueError, KeyError):
+                        return ('FAILED', f"Lỗi không xác định khi nâng cấp tài khoản: {e_migrate}")
+                except Exception as e_migrate_general:
+                     return ('FAILED', f"Lỗi hệ thống khi nâng cấp tài khoản: {e_migrate_general}")
+
+            # Handle other Firebase auth errors
+            return ('FAILED', f"Lỗi xác thực: {error_message}")
+            
+        except Exception as e:
+            # Catch any other unexpected errors
+            return ('FAILED', f"Đã xảy ra lỗi không mong muốn: {e}")
 
     def logout(self):
         if 'user' in st.session_state:
@@ -163,9 +205,13 @@ class AuthManager:
         try:
             user_record = self.auth.create_user_with_email_and_password(email, password)
             uid = user_record['localId']
-        except Exception as e:
-            if "EMAIL_EXISTS" in str(e):
-                raise ValueError(f"Lỗi: Username '{normalized_username}' đã được sử dụng.")
+        except requests.exceptions.HTTPError as e:
+            try:
+                error_json = e.response.json()['error']
+                if error_json['message'] == "EMAIL_EXISTS":
+                    raise ValueError(f"Lỗi: Username '{normalized_username}' đã được sử dụng.")
+            except (ValueError, KeyError):
+                raise e # Re-raise original error if parsing fails
             raise e
 
         data['uid'] = uid

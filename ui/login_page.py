@@ -51,6 +51,8 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                             time.sleep(3)
                             st.rerun()
 
+                        except ValueError as ve:
+                            st.error(f"Lỗi: {ve}")
                         except Exception as e:
                             st.error(f"Đã có lỗi xảy ra trong quá trình thiết lập: {e}")
 
@@ -63,9 +65,20 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                 login_button = st.form_submit_button("Đăng nhập")
 
                 if login_button:
-                    user = auth_mgr.login(username, password)
-                    if user:
+                    # The login function now returns a tuple (status, data)
+                    status, data = auth_mgr.login(username, password)
+
+                    if status == 'SUCCESS':
                         st.success("Đăng nhập thành công!")
+                        # The user data is already in session_state from the auth_mgr
+                        time.sleep(1) # Short pause to show the message
                         st.rerun() 
+                    elif status == 'MIGRATED':
+                        # Show the migration success message and let the user log in again
+                        st.info(data)
+                    elif status == 'FAILED':
+                        # Show the specific error message from the auth_mgr
+                        st.error(data)
                     else:
-                        st.error("Sai tên đăng nhập hoặc mật khẩu.")
+                        # Fallback for any unexpected status
+                        st.error("Đã xảy ra lỗi không xác định. Vui lòng thử lại.")
