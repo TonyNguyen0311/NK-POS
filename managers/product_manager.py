@@ -6,43 +6,76 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud.firestore_v1.base_query import And, FieldFilter
 
+# These managers are now self-contained
 from .product.category_manager import CategoryManager
 from .product.unit_manager import UnitManager
 from .product.image_handler import ImageHandler
 
 class ProductManager:
+    """
+    Manages all product-related operations, including categories, units,
+    and product data. It now self-initializes the ImageHandler.
+    """
     def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection = self.db.collection('products')
         self.category_manager = CategoryManager(self.db)
         self.unit_manager = UnitManager(self.db)
+        # Image handler is now initialized internally
         self.image_handler = self._initialize_image_handler()
 
+    def _get_corrected_creds(self, secrets_key):
+        """Correctly formats the private key from Streamlit secrets."""
+        if secrets_key not in st.secrets:
+            return None
+        creds_section = st.secrets[secrets_key]
+        creds_dict = dict(creds_section)
+        if 'private_key' in creds_dict:
+            creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+        return creds_dict
+
     def _initialize_image_handler(self):
-        if st.secrets.has_key("gcp_service_account") and st.secrets.has_key("google_drive_folder_id"):
+        """Initializes ImageHandler using secrets from st.secrets."""
+        logging.info("Attempting to initialize ImageHandler...")
+        # Check for the correct secret keys as specified by the user
+        if "gdrive_credentials" in st.secrets and "gdrive_folder_id" in st.secrets:
             try:
-                creds_info = dict(st.secrets["gcp_service_account"])
-                folder_id = st.secrets["google_drive_folder_id"]
+                creds_info = self._get_corrected_creds("gdrive_credentials")
+                folder_id = st.secrets["gdrive_folder_id"]
+                
                 if folder_id and creds_info:
+                    logging.info("Google Drive credentials and folder ID found. Initializing ImageHandler.")
                     return ImageHandler(credentials_info=creds_info, folder_id=folder_id)
+                else:
+                    logging.warning("Google Drive folder ID or credentials are not fully set in secrets.")
             except Exception as e:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
+                st.warning("Không thể khởi tạo trình xử lý ảnh. Chức năng tải ảnh sẽ bị tắt.")
+        else:
+            logging.warning("'gdrive_credentials' or 'gdrive_folder_id' not found in Streamlit secrets. Image uploads will be disabled.")
         return None
 
+    # --- Category and Unit methods ---
     def get_categories(self): return self.category_manager.get_categories()
     def create_category(self, name, prefix): return self.category_manager.create_category(name, prefix)
     def get_units(self): return self.unit_manager.get_units()
     def create_unit(self, name): return self.unit_manager.create_unit(name)
 
     def _upload_and_update_image_url(self, sku, image_file):
+        """A private method to handle the image upload and Firestore URL update."""
         if self.image_handler and image_file and sku:
             try:
+                st.info(f"Đang tải ảnh lên cho SKU: {sku}...")
                 image_url = self.image_handler.upload_image(image_file, sku)
                 if image_url:
                     self.collection.document(sku).update({'image_url': image_url})
+                    logging.info(f"Successfully uploaded image for {sku}. URL: {image_url}")
                     return image_url
+                else:
+                    st.error("Tải ảnh lên thất bại. Không nhận được URL.")
             except Exception as e:
                 logging.error(f"Image upload failed for {sku}: {e}")
+                st.error(f"Lỗi trong quá trình tải ảnh lên: {e}")
         return None
 
     def create_product(self, product_data):
@@ -65,7 +98,7 @@ class ProductManager:
             product_data['active'] = True
             product_data['created_at'] = firestore.SERVER_TIMESTAMP
             product_data['updated_at'] = firestore.SERVER_TIMESTAMP
-            product_data['image_url'] = ""
+            product_data['image_url'] = "" # Initially empty
             
             product_ref = self.collection.document(sku)
             trans.set(product_ref, product_data)
@@ -75,8 +108,9 @@ class ProductManager:
         try:
             sku = _create_product_in_transaction(transaction, cat_ref, product_data)
             if not sku:
-                raise Exception("Failed to create product SKU in transaction.")
+                raise Exception("Không thể tạo SKU sản phẩm trong giao dịch.")
 
+            # Upload image after the product is successfully created
             if image_file_to_upload:
                 self._upload_and_update_image_url(sku, image_file_to_upload)
 

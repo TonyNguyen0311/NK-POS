@@ -86,6 +86,10 @@ MENU_STRUCTURE = {
     ]
 }
 
+def load_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
 def get_corrected_creds(secrets_key):
     creds_section = st.secrets[secrets_key]
     creds_dict = {key: creds_section[key] for key in creds_section.keys()}
@@ -161,6 +165,8 @@ def display_sidebar():
         st.rerun()
 
 def main():
+    load_css('assets/styles.css') # Load custom CSS
+
     if not init_managers(): return
 
     auth_mgr = st.session_state.auth_mgr

@@ -1,30 +1,69 @@
-/* Card grid responsive */
-.product-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px;
-}
-.product-card {
-  border: 1px solid #eee;
-  border-radius: 8px;
-  padding: 8px;
-}
-.product-card img {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  border-radius: 6px;
+
+/* Define CSS variables for consistent theming */
+:root {
+    --primary-color: #4A90E2; /* A nice blue */
+    --secondary-color: #F5A623; /* A complementary orange */
+    --background-color: #F8F9FA; /* Light grey background */
+    --text-color: #333333; /* Dark grey for text */
+    --sidebar-background: #FFFFFF;
+    --font-family: 'Roboto', sans-serif;
 }
 
-/* Sticky bottom bar for mobile */
-@media (max-width: 768px) {
-  .checkout-sticky {
-    position: fixed;
-    left: 0; right: 0; bottom: 0;
-    background: #fff;
-    border-top: 1px solid #eee;
-    padding: 12px;
-    box-shadow: 0 -2px 8px rgba(0,0,0,.06);
-    z-index: 999;
-  }
+/* General body styles */
+body {
+    font-family: var(--font-family);
+    color: var(--text-color);
+    background-color: var(--background-color);
+}
+
+/* Sidebar styling */
+.st-emotion-cache-1jicfl2 {
+    background-color: var(--sidebar-background);
+}
+
+/* Sidebar buttons and expanders */
+.stButton>button {
+    border-radius: 5px;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    transition: all 0.2s ease-in-out;
+}
+
+.stButton>button:hover {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+/* Main content area */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+/* Improve header styles */
+h1, h2, h3 {
+    color: var(--primary-color);
+}
+
+/* Style for Streamlit expanders */
+.st-expander {
+    border: 1px solid #e6e6e6;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.st-expander header {
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+/* Center-align sidebar elements if needed */
+.st-sidebar .st-emotion-cache-1jicfl2 {
+    text-align: center;
+}
+
+/* Style for tables (st.dataframe) */
+.stDataFrame {
+    border-radius: 10px;
+    overflow: hidden; /* Ensures the border-radius is applied to the corners */
 }
