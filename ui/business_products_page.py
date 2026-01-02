@@ -55,13 +55,19 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
     all_prices = price_mgr.get_all_prices()
     prices_in_branch = {p['sku']: p for p in all_prices if p.get('branch_id') == selected_branch_id}
     listed_skus = prices_in_branch.keys()
-    listed_products = [p for p in all_catalog_products if p['sku'] in listed_skus]
+    
+    # Lọc ra sản phẩm chưa được niêm yết một cách chính xác
     unlisted_products = [p for p in all_catalog_products if p['sku'] not in listed_skus]
+    
+    # Lấy thông tin sản phẩm đã được niêm yết
+    listed_products = [p for p in all_catalog_products if p['sku'] in listed_skus]
 
-    # --- NIÊM YẾT SẢN PHẨM MỚI --- #
-    with st.expander("➕ Niêm yết sản phẩm mới vào chi nhánh"):
-        # ... (Giữ nguyên) ...
-        if not unlisted_products:
+    # --- NIÊM YẾT SẢN PHẨM MỚI (SỬA LỖI & CẢI TIẾN) --- #
+    # Luôn mở và hiển thị form
+    with st.expander("➕ Niêm yết sản phẩm mới vào chi nhánh", expanded=True):
+        if not all_catalog_products:
+            st.warning("Chưa có sản phẩm nào trong danh mục chung. Vui lòng thêm sản phẩm ở trang 'Danh mục Sản phẩm' trước.")
+        elif not unlisted_products:
             st.info("Tất cả sản phẩm trong danh mục đã được niêm yết tại chi nhánh này.")
         else:
             with st.form("form_list_product"):
@@ -95,7 +101,6 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
                 c1, c2, c3 = st.columns([2,1,1])
                 with c1: st.markdown(f"**{prod['name']}** `{prod['sku']}`")
                 with c2: st.metric("Giá hiện tại", f"{current_price:,} VNĐ")
-                # Sửa lỗi logic: Sử dụng lambda để đảm bảo giá trị mới nhất từ session_state được dùng
                 with c3: st.toggle("Đang bán", value=is_active, key=f"status_{sku}", on_change=lambda sku=sku: price_mgr.set_business_status(sku, selected_branch_id, st.session_state[f"status_{sku}"]))
 
                 # --- LỊCH TRÌNH GIÁ ---
