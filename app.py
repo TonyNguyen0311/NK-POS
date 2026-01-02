@@ -35,9 +35,10 @@ from ui.stock_transfer_page import show_stock_transfer_page
 from ui.cost_allocation_page import render_cost_allocation_page
 from ui.pnl_report_page import render_pnl_report_page
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
 # --- MENU PERMISSIONS & STRUCTURE ---
+# (Your existing MENU_PERMISSIONS and MENU_STRUCTURE dictionaries remain unchanged)
 MENU_PERMISSIONS = {
     # Admin has all permissions
     "admin": [
@@ -86,57 +87,55 @@ MENU_STRUCTURE = {
     ]
 }
 
+@st.cache_resource
 def load_css(file_name):
-    with open(file_name) as f:
-        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    try:
+        with open(file_name) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.error(f"Tệp CSS '{file_name}' không tìm thấy. Bỏ qua việc tải CSS.")
 
+# Correctly parse credentials from Streamlit secrets
 def get_corrected_creds(secrets_key):
     creds_section = st.secrets[secrets_key]
-    creds_dict = {key: creds_section[key] for key in creds_section.keys()}
+    creds_dict = creds_section.to_dict()
     if 'private_key' in creds_dict:
         creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
     return creds_dict
 
+# Initialize all managers and store them in session_state
 def init_managers():
+    if 'managers_initialized' in st.session_state:
+        return
+
     try:
         if 'firebase_client' not in st.session_state:
             firebase_creds_info = get_corrected_creds("firebase_credentials")
-            pyrebase_config = {key: st.secrets["pyrebase_config"][key] for key in st.secrets["pyrebase_config"].keys()}
+            pyrebase_config = st.secrets["pyrebase_config"].to_dict()
             st.session_state.firebase_client = FirebaseClient(firebase_creds_info, pyrebase_config)
     except Exception as e:
-        st.error(f"Lỗi nghiêm trọng khi khởi tạo credentials: {e}")
+        st.error(f"Lỗi nghiêm trọng khi khởi tạo Firebase: {e}")
         st.stop()
 
     fb_client = st.session_state.firebase_client
 
-    # Initialize all managers. ProductManager will now self-initialize its ImageHandler.
-    managers_to_init = {
-        'branch_mgr': (BranchManager, [fb_client]),
-        'settings_mgr': (SettingsManager, [fb_client]),
-        'inventory_mgr': (InventoryManager, [fb_client]),
-        'customer_mgr': (CustomerManager, [fb_client]),
-        'promotion_mgr': (PromotionManager, [fb_client]),
-        'cost_mgr': (CostManager, [fb_client]),
-        'price_mgr': (PriceManager, [fb_client]),
-        'product_mgr': (ProductManager, [fb_client]), # No more image_handler argument
-    }
-    for mgr_name, (mgr_class, args) in managers_to_init.items():
-        if mgr_name not in st.session_state:
-            st.session_state[mgr_name] = mgr_class(*args)
-
-    # Initialize managers with dependencies
-    if 'auth_mgr' not in st.session_state:
-        st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
-    if 'report_mgr' not in st.session_state:
-        st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
-    if 'pos_mgr' not in st.session_state:
-        st.session_state.pos_mgr = POSManager(
-            firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
-            customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
-            price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
-        )
+    st.session_state.branch_mgr = BranchManager(fb_client)
+    st.session_state.settings_mgr = SettingsManager(fb_client)
+    st.session_state.inventory_mgr = InventoryManager(fb_client)
+    st.session_state.customer_mgr = CustomerManager(fb_client)
+    st.session_state.promotion_mgr = PromotionManager(fb_client)
+    st.session_state.cost_mgr = CostManager(fb_client)
+    st.session_state.price_mgr = PriceManager(fb_client)
+    st.session_state.product_mgr = ProductManager(fb_client)
+    st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
+    st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
+    st.session_state.pos_mgr = POSManager(
+        firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
+        customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
+        price_mgr=st.session_state.price_mgr, cost_mgr=st.session_state.cost_mgr
+    )
     
-    return True
+    st.session_state.managers_initialized = True
 
 def display_sidebar():
     user_info = st.session_state.user
@@ -145,6 +144,8 @@ def display_sidebar():
     st.sidebar.write(f"Vai trò: **{role.upper()}**")
 
     user_allowed_pages = MENU_PERMISSIONS.get(role, [])
+    
+    # Set default page if not set or not allowed
     if 'page' not in st.session_state or st.session_state.page not in user_allowed_pages:
         st.session_state.page = next((p for cat_pages in MENU_STRUCTURE.values() for p in cat_pages if p in user_allowed_pages), None)
 
@@ -152,35 +153,45 @@ def display_sidebar():
     for category, pages in MENU_STRUCTURE.items():
         allowed_pages_in_category = [p for p in pages if p in user_allowed_pages]
         if allowed_pages_in_category:
+            # Check if the current page is in this category to expand the expander
             is_expanded = st.session_state.get('page') in allowed_pages_in_category
             with st.sidebar.expander(category, expanded=is_expanded):
                 for page_name in allowed_pages_in_category:
-                    if st.button(page_name, key=f"btn_{page_name.replace(' ', '_')}", use_container_width=True):
+                    # Use a more descriptive key for the button
+                    if st.button(page_name, key=f"btn_nav_{page_name.replace(' ', '_')}", use_container_width=True):
                         st.session_state.page = page_name
                         st.rerun()
 
     st.sidebar.divider()
-    if st.sidebar.button("Đăng xuất", use_container_width=True):
+    if st.sidebar.button("Đăng xuất", use_container_width=True, key="logout_button"):
         st.session_state.auth_mgr.logout()
         st.rerun()
 
 def main():
     load_css('assets/styles.css') # Load custom CSS
 
-    if not init_managers(): return
+    init_managers()
 
     auth_mgr = st.session_state.auth_mgr
     branch_mgr = st.session_state.branch_mgr
+    
+    # This handles re-authentication from cookies
     auth_mgr.check_cookie_and_re_auth()
 
+    # If user is not logged in, show login page
     if 'user' not in st.session_state or st.session_state.user is None:
         render_login_page(auth_mgr, branch_mgr)
         return
 
+    # If user is logged in, display the main app
     display_sidebar()
+    
     page = st.session_state.get('page')
-    if not page: st.info("Vui lòng chọn chức năng."); return
+    if not page: 
+        st.info("Vui lòng chọn một chức năng từ thanh điều hướng bên trái.")
+        return
 
+    # Dictionary mapping page names to their render functions
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
         "Báo cáo P&L": lambda: render_pnl_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
@@ -197,9 +208,12 @@ def main():
         "Sản phẩm Kinh doanh": lambda: render_business_products_page(st.session_state.auth_mgr, st.session_state.branch_mgr, st.session_state.product_mgr, st.session_state.price_mgr),
     }
 
+    # Render the selected page
     renderer = page_renderers.get(page)
-    if renderer: renderer()
-    else: st.warning(f"Trang '{page}' đang phát triển.")
+    if renderer:
+        renderer()
+    else:
+        st.warning(f"Trang '{page}' đang được phát triển hoặc không tồn tại.")
 
 if __name__ == "__main__":
     main()
