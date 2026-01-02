@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime
 from google.cloud import firestore
+import logging
 
 class CostManager:
     def __init__(self, firebase_client):
@@ -12,35 +13,10 @@ class CostManager:
         self.allocation_rules_col = self.db.collection('cost_allocation_rules')
 
     # --- COST GROUPS (NHÓM CHI PHÍ) ---
-    def create_cost_group(self, group_name, group_type):
-        if group_type not in ['fixed', 'variable']:
-            raise ValueError("Loại chi phí phải là 'fixed' hoặc 'variable'.")
-        existing_groups = self.group_col.where('group_name', '==', group_name).limit(1).get()
-        if len(list(existing_groups)) > 0:
-            raise ValueError(f"Nhóm chi phí '{group_name}' đã tồn tại.")
-        group_id = f"CG-{uuid.uuid4().hex[:6].upper()}"
-        self.group_col.document(group_id).set({"id": group_id, "group_name": group_name, "group_type": group_type})
-
-    def update_cost_group(self, group_id, group_name, group_type):
-        if group_type not in ['fixed', 'variable']:
-            raise ValueError("Loại chi phí phải là 'fixed' hoặc 'variable'.")
-        self.group_col.document(group_id).update({"group_name": group_name, "group_type": group_type})
-
     def get_cost_groups(self):
         return [doc.to_dict() for doc in self.group_col.order_by("group_name").stream()]
-    
-    def delete_cost_group(self, group_id):
-        self.group_col.document(group_id).delete()
 
     # --- COST ENTRIES (BẢN GHI CHI PHÍ) ---
-    def upload_receipt_image(self, uploaded_file):
-        if not uploaded_file: return None
-        file_name = f"receipts/{uuid.uuid4().hex}_{uploaded_file.name}"
-        blob = self.bucket.blob(file_name)
-        blob.upload_from_file(uploaded_file, content_type=uploaded_file.type)
-        blob.make_public()
-        return blob.public_url
-
     def create_cost_entry(self, branch_id, name, amount, group_id, entry_date, created_by, classification, receipt_url=None, is_amortized=False, amortize_months=0):
         entry_id = f"CE-{uuid.uuid4().hex[:8].upper()}"
         entry_data = {
@@ -57,20 +33,47 @@ class CostManager:
         return doc.to_dict() if doc.exists else None
 
     def query_cost_entries(self, filters=None):
-        query = self.entry_col
-        if not filters: filters = {}
+        """
+        Lấy và lọc các bản ghi chi phí. 
+        Để tránh lỗi chỉ mục phức hợp của Firestore, hàm này sẽ lấy tất cả các bản ghi
+        và thực hiện lọc/sắp xếp ở phía server (Python).
+        """
+        try:
+            all_entries = [doc.to_dict() for doc in self.entry_col.stream()]
+        except Exception as e:
+            logging.error(f"Error fetching all cost entries from Firestore: {e}")
+            return [] # Trả về danh sách rỗng nếu có lỗi khi truy vấn
+
+        if not filters:
+            filters = {}
+
+        filtered_entries = all_entries
+
+        # Áp dụng các bộ lọc bằng Python
         if 'branch_ids' in filters and filters['branch_ids']:
-            query = query.where('branch_id', 'in', filters['branch_ids'])
+            filtered_entries = [e for e in filtered_entries if e.get('branch_id') in filters['branch_ids']]
         elif 'branch_id' in filters:
-            query = query.where('branch_id', '==', filters['branch_id'])
-        if 'status' in filters:
-            query = query.where('status', '==', filters['status'])
-        if 'source_entry_id_is_null' in filters and filters['source_entry_id_is_null']:
-             query = query.where('source_entry_id', '==', None)
-        if 'start_date' in filters: query = query.where('entry_date', '>=', filters['start_date'])
-        if 'end_date' in filters: query = query.where('entry_date', '<=', filters['end_date'])
-        query = query.order_by('entry_date', direction=firestore.Query.DESCENDING)
-        return [doc.to_dict() for doc in query.stream()]
+            filtered_entries = [e for e in filtered_entries if e.get('branch_id') == filters['branch_id']]
+
+        if filters.get('status'):
+            filtered_entries = [e for e in filtered_entries if e.get('status') == filters['status']]
+
+        if filters.get('source_entry_id_is_null'):
+            filtered_entries = [e for e in filtered_entries if e.get('source_entry_id') is None]
+
+        if filters.get('start_date'):
+            filtered_entries = [e for e in filtered_entries if e.get('entry_date') and e.get('entry_date') >= filters['start_date']]
+
+        if filters.get('end_date'):
+            filtered_entries = [e for e in filtered_entries if e.get('entry_date') and e.get('entry_date') <= filters['end_date']]
+
+        # Sắp xếp kết quả bằng Python
+        try:
+            filtered_entries.sort(key=lambda x: x.get('entry_date', '0'), reverse=True)
+        except Exception as e:
+            logging.warning(f"Could not sort cost entries: {e}")
+
+        return filtered_entries
 
     # --- ALLOCATION RULES ---
     def create_allocation_rule(self, rule_name, description, splits):
@@ -92,7 +95,7 @@ class CostManager:
     def _apply_allocation_transaction(self, transaction, source_entry_id, rule_id, user_id):
         source_ref = self.entry_col.document(source_entry_id)
         source_doc = source_ref.get(transaction=transaction).to_dict()
-        if source_doc['status'] == 'ALLOCATED': raise Exception("Chi phí này đã được phân bổ.")
+        if source_doc.get('status') == 'ALLOCATED': raise Exception("Chi phí này đã được phân bổ.")
         
         rule_ref = self.allocation_rules_col.document(rule_id)
         rule = rule_ref.get(transaction=transaction).to_dict()
@@ -107,11 +110,11 @@ class CostManager:
             new_entry_id = f"CE-{uuid.uuid4().hex[:8].upper()}"
             new_entry_ref = self.entry_col.document(new_entry_id)
             new_entry_data = {
-                **source_doc, # Copy all fields from source
+                **source_doc,
                 'id': new_entry_id,
                 'branch_id': branch_id,
                 'amount': allocated_amount,
-                'source_entry_id': source_entry_id, # Link back to the original entry
+                'source_entry_id': source_entry_id,
                 'created_at': datetime.now().isoformat(),
                 'created_by': user_id,
                 'notes': f"Phân bổ từ chi phí {source_entry_id} theo quy tắc {rule['name']}"
