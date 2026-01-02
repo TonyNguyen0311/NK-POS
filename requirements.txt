@@ -10,3 +10,4 @@ setuptools
 bcrypt
 plotly
 streamlit-cookies-manager>=0.2.0
+google-cloud-firestore==2.16.0
