@@ -6,7 +6,7 @@ import streamlit as st
 from google.cloud import firestore
 from dateutil.relativedelta import relativedelta
 
-# Import the centralized image handler
+# Corrected import path
 from .image_handler import ImageHandler
 
 class CostManager:

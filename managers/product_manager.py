@@ -6,8 +6,8 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud.firestore_v1.base_query import And, FieldFilter
 
-# Updated import to the centralized handler
-from ..image_handler import ImageHandler 
+# Corrected import path
+from .image_handler import ImageHandler 
 from .category_manager import CategoryManager
 from .unit_manager import UnitManager
 
