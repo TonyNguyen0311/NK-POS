@@ -89,7 +89,13 @@ class ProductManager:
             
             @firestore.transactional
             def _create_in_transaction(transaction, cat_ref, product_data):
-                cat_snapshot = transaction.get(cat_ref, field_paths=["prefix", "current_seq"])[0].to_dict()
+                # Robustly get the category snapshot, handling different return types from transaction.get()
+                cat_snap = transaction.get(cat_ref)
+                if isinstance(cat_snap, (list, tuple)):
+                    cat_snapshot = cat_snap[0].to_dict()
+                else:
+                    cat_snapshot = cat_snap.to_dict()
+
                 prefix = cat_snapshot.get("prefix", "PRD")
                 new_seq = cat_snapshot.get("current_seq", 0) + 1
                 sku = f"{prefix}-{str(new_seq).zfill(4)}"
