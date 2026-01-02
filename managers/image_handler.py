@@ -65,15 +65,17 @@ class ImageHandler:
                     file_id_to_update = response.get('files')[0].get('id')
 
             if file_id_to_update:
-                file = self.drive_service.files().update(fileId=file_id_to_update, media_body=media, fields='id, webViewLink').execute()
+                request = self.drive_service.files().update(fileId=file_id_to_update, media_body=media, fields='id')
+                response = request.execute()
+                file_id = response.get('id')
             else:
                 file_metadata = {'name': filename, 'parents': [folder_id]}
-                file = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+                request = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id')
+                response = request.execute()
+                file_id = response.get('id')
             
-            file_id = file.get('id')
             if file_id:
                 self.drive_service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
-                # Corrected URL format for direct embedding
                 return f"https://drive.google.com/uc?export=view&id={file_id}"
             return None
 
@@ -88,7 +90,6 @@ class ImageHandler:
 
     def upload_receipt_image(self, image_file, folder_id):
         filename = f"receipt_{uuid.uuid4().hex[:12]}.jpg"
-        # Receipts can be larger, but still optimized
         optimized_image_bytes = self._optimize_image(image_file, max_width=1200, quality=80)
         return self._upload_to_drive(folder_id, filename, optimized_image_bytes, update_existing=False)
 
