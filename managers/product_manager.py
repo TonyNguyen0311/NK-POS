@@ -139,6 +139,10 @@ class ProductManager:
         except Exception as e:
             logging.error(f"Error getting all products: {e}")
             return []
+
+    def list_products(self, show_inactive=False):
+        """Returns a list of all products. Alias for get_all_products."""
+        return self.get_all_products(show_inactive)
     
     def get_product_by_sku(self, sku):
         try:
