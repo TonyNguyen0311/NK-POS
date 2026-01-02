@@ -299,6 +299,46 @@ class AuthManager:
         self.users_col.document(uid).update(data)
         return True
 
+    def delete_user_record(self, uid: str):
+        """Deletes a user record from Auth and Firestore."""
+        actor = self.get_current_user_info()
+        if not actor:
+            raise PermissionError("Authentication required to perform this action.")
+
+        if actor.get('uid') == uid:
+            raise PermissionError("You cannot delete your own account.")
+
+        actor_role = actor.get('role', 'staff').lower()
+        actor_level = ROLES.index(actor_role)
+
+        target_user_doc = self.users_col.document(uid).get()
+        if not target_user_doc.exists:
+            try:
+                self.auth.delete_user_account(uid)
+            except Exception:
+                pass 
+            return True
+
+        target_user_data = target_user_doc.to_dict()
+        target_user_role = target_user_data.get('role', 'staff').lower()
+        target_level = ROLES.index(target_user_role)
+
+        if actor_role != 'admin' and actor_level <= target_level:
+            raise PermissionError("Insufficient permissions to delete this user.")
+
+        try:
+            self.auth.delete_user_account(uid)
+        except Exception as e:
+            print(f"Warning: Could not delete user {uid} from Auth, but proceeding with DB deletion. Error: {e}")
+
+        self.users_col.document(uid).delete()
+
+        sessions_query = self.sessions_col.where("user_id", "==", uid).stream()
+        for doc in sessions_query:
+            self.sessions_col.document(doc.id).update({'revoked': True})
+
+        return True
+
     def get_allowed_branches_map(self):
         """
         Returns a dictionary of branch_id: branch_name that the current user
