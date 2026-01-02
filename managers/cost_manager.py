@@ -16,7 +16,8 @@ class CostManager:
         self.entry_col = self.db.collection('cost_entries')
         self.allocation_rules_col = self.db.collection('cost_allocation_rules')
         self.image_handler = self._initialize_image_handler()
-        self.receipt_image_folder_id = st.secrets.get("drive_receipt_folder_id", None)
+        # Flexible folder ID: specific first, then general
+        self.receipt_image_folder_id = st.secrets.get("drive_receipt_folder_id") or st.secrets.get("drive_folder_id")
 
     def _initialize_image_handler(self):
         if "drive_oauth" in st.secrets:
@@ -38,7 +39,7 @@ class CostManager:
             st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo. Vui lòng kiểm tra 'drive_oauth' trong Streamlit secrets.")
             return None
         if not self.receipt_image_folder_id:
-            st.error("Lỗi Cấu Hình: 'drive_receipt_folder_id' chưa được cài đặt trong secrets.")
+            st.error("Lỗi Cấu Hình: Cần cài đặt 'drive_receipt_folder_id' hoặc 'drive_folder_id' trong secrets.")
             return None
             
         try:

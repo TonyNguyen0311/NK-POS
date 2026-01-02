@@ -18,8 +18,8 @@ class ProductManager:
         self.category_manager = CategoryManager(self.db)
         self.unit_manager = UnitManager(self.db)
         self.image_handler = self._initialize_image_handler()
-        # Store the specific folder ID for products
-        self.product_image_folder_id = st.secrets.get("drive_product_folder_id", None)
+        # Flexible folder ID: specific first, then general
+        self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
 
     def _initialize_image_handler(self):
         if "drive_oauth" in st.secrets:
@@ -46,7 +46,7 @@ class ProductManager:
             st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo. Vui lòng kiểm tra lại 'drive_oauth' trong Streamlit secrets.")
             return False
         if not self.product_image_folder_id:
-            st.error("Lỗi Cấu Hình: 'drive_product_folder_id' chưa được cài đặt trong secrets. Vui lòng thêm ID thư mục Google Drive.")
+            st.error("Lỗi Cấu Hình: Cần cài đặt 'drive_product_folder_id' hoặc 'drive_folder_id' trong secrets.")
             return False
         
         filename = f"{sku}.jpg"
@@ -84,7 +84,7 @@ class ProductManager:
                 st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo. Vui lòng kiểm tra lại 'drive_oauth' trong Streamlit secrets.")
                 return False, "Tạo sản phẩm thất bại do lỗi cấu hình."
             if not self.product_image_folder_id:
-                st.error("Lỗi Cấu Hình: 'drive_product_folder_id' chưa được cài đặt trong secrets.")
+                st.error("Lỗi Cấu Hình: Cần cài đặt 'drive_product_folder_id' hoặc 'drive_folder_id' trong secrets.")
                 return False, "Tạo sản phẩm thất bại do lỗi cấu hình."
 
         cat_ref = self.category_manager.cat_col.document(product_data['category_id'])
