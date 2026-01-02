@@ -31,15 +31,15 @@ class POSManager:
         if sku in st.session_state.pos_cart:
             self.update_item_quantity(sku, st.session_state.pos_cart[sku]['quantity'] + 1)
         else:
-            # === BỔ SUNG LƯU GIÁ VỐN VÀO GIỎ HÀNG ===
             st.session_state.pos_cart[sku] = {
                 "sku": sku,
                 "name": product_data['name'],
                 "category_id": product_data.get('category_id'),
                 "original_price": current_price,
-                "cost_price": product_data.get('cost_price', 0), # Lấy giá vốn từ product_data
+                "cost_price": product_data.get('cost_price', 0),
                 "quantity": 1,
-                "stock": stock_quantity
+                "stock": stock_quantity,
+                "image_url": product_data.get('image_url')
             }
 
     def update_item_quantity(self, sku: str, new_quantity: int):
@@ -62,14 +62,15 @@ class POSManager:
     # --------------------------------------------------------------------------
 
     def calculate_cart_state(self, cart_items: dict, customer_id: str, manual_discount_input: dict):
-        # (Hàm này không thay đổi, vì giá vốn không ảnh hưởng tới việc tính toán giảm giá)
         active_promo = self.promotion_mgr.get_active_price_program()
         calculated_items = {}
         subtotal = 0
         total_auto_discount = 0
         manual_discount_exceeded = False
+        total_items = 0 # <--- SỬA LỖI: Khởi tạo biến đếm
 
         for sku, item in cart_items.items():
+            total_items += item['quantity'] # <--- SỬA LỖI: Đếm tổng số lượng sản phẩm
             original_line_total = item['original_price'] * item['quantity']
             subtotal += original_line_total
             
@@ -104,6 +105,7 @@ class POSManager:
 
         return {
             "items": calculated_items,
+            "total_items": total_items, # <--- SỬA LỖI: Trả về tổng số sản phẩm
             "active_promotion": active_promo,
             "subtotal": subtotal,
             "total_auto_discount": total_auto_discount,
@@ -132,7 +134,6 @@ class POSManager:
 
         order_id = self._create_order_id(branch_id)
         
-        # === TÍNH TOÁN VÀ LƯU TRỮ GIÁ VỐN (COGS) ===
         order_items_to_save = []
         total_cogs = 0 
 
@@ -147,7 +148,6 @@ class POSManager:
             final_line_total = line_total_before_manual - proportional_manual_discount
             final_price_per_unit = final_line_total / item['quantity'] if item['quantity'] > 0 else 0
 
-            # Lấy giá vốn từ item trong giỏ hàng
             item_cost_price = item.get('cost_price', 0)
             line_cogs = item_cost_price * item['quantity']
             total_cogs += line_cogs
@@ -157,8 +157,8 @@ class POSManager:
                 "name": item['name'],
                 "quantity": item['quantity'],
                 "original_price": item['original_price'],
-                "cost_price": item_cost_price, # <-- LƯU GIÁ VỐN TỪNG SẢN PHẨM
-                "line_cogs": line_cogs, # <-- LƯU TỔNG VỐN CỦA DÒNG
+                "cost_price": item_cost_price,
+                "line_cogs": line_cogs,
                 "auto_discount_applied": item['auto_discount_applied'],
                 "manual_discount_applied": proportional_manual_discount,
                 "final_price": final_price_per_unit
@@ -174,18 +174,16 @@ class POSManager:
             "total_auto_discount": cart_state['total_auto_discount'],
             "total_manual_discount": cart_state['total_manual_discount'],
             "grand_total": cart_state['grand_total'],
-            "total_cogs": total_cogs, # <-- LƯU TỔNG VỐN CỦA CẢ ĐƠN HÀNG
+            "total_cogs": total_cogs,
             "promotion_id": cart_state['active_promotion']['id'] if cart_state['active_promotion'] else None,
             "created_at": datetime.now().isoformat(),
             "status": "COMPLETED"
         }
-        # ===============================================
 
         try:
             @firestore.transactional
             def _process_order(transaction):
                 order_ref = self.orders_collection.document(order_id)
-                # 1. Cập nhật tồn kho
                 for item in order_items_to_save:
                     self.inventory_mgr.update_inventory(
                         sku=item['sku'],
@@ -193,7 +191,6 @@ class POSManager:
                         delta=-item['quantity'],
                         transaction=transaction
                     )
-                # 2. Cập nhật thông tin khách hàng
                 if customer_id != "-":
                     self.customer_mgr.update_customer_stats(
                         transaction=transaction,
@@ -201,11 +198,9 @@ class POSManager:
                         amount_spent_delta=final_order_data['grand_total'],
                         points_delta=int(final_order_data['grand_total'] / 1000) 
                     )
-                # 3. Lưu đơn hàng
                 transaction.set(order_ref, final_order_data)
 
             _process_order(self.db.transaction())
             return True, order_id
         except Exception as e:
-            # TODO: Cần có cơ chế rollback hoặc xử lý lỗi tốt hơn ở đây
             return False, str(e)
