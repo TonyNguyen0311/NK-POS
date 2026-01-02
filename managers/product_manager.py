@@ -1,3 +1,4 @@
+# managers/product_manager.py
 import uuid
 import logging
 import streamlit as st
@@ -6,13 +7,89 @@ from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud.firestore_v1.base_query import And, FieldFilter
 
 from managers.image_handler import ImageHandler
-from managers.product.category_manager import CategoryManager
-from managers.product.unit_manager import UnitManager
+
+# --- BEGIN INLINED CategoryManager ---
+class CategoryManager:
+    def __init__(self, db):
+        self.db = db
+        self.cat_col = self.db.collection('categories')
+
+    def create_category(self, name, prefix):
+        try:
+            cat_id = f"CAT-{uuid.uuid4().hex[:4].upper()}"
+            data = {
+                "id": cat_id, 
+                "name": name, 
+                "prefix": prefix.upper(), 
+                "current_seq": 0,
+                "active": True,
+                "created_at": firestore.SERVER_TIMESTAMP
+            }
+            self.cat_col.document(cat_id).set(data)
+            return True, f"Tạo danh mục '{name}' thành công!"
+        except Exception as e:
+            logging.error(f"Failed to create category '{name}': {e}")
+            return False, f"Lỗi: {e}"
+
+    def get_categories(self):
+        try:
+            docs = self.cat_col.order_by("name").stream()
+            return [{"id": doc.id, **doc.to_dict()} for doc in docs]
+        except Exception as e:
+            logging.error(f"Error getting categories: {e}")
+            return []
+
+    def delete_category(self, cat_id):
+        try:
+            self.cat_col.document(cat_id).delete()
+            return True, "Xóa danh mục thành công."
+        except Exception as e:
+            logging.error(f"Error deleting category {cat_id}: {e}")
+            return False, f"Lỗi: {e}"
+# --- END INLINED CategoryManager ---
+
+# --- BEGIN INLINED UnitManager ---
+class UnitManager:
+    def __init__(self, db):
+        self.db = db
+        self.unit_col = self.db.collection('units')
+
+    def create_unit(self, name):
+        try:
+            unit_id = f"UNT-{uuid.uuid4().hex[:4].upper()}"
+            data = {
+                "id": unit_id, 
+                "name": name,
+                "created_at": firestore.SERVER_TIMESTAMP
+            }
+            self.unit_col.document(unit_id).set(data)
+            return True, f"Tạo đơn vị '{name}' thành công!"
+        except Exception as e:
+            logging.error(f"Failed to create unit '{name}': {e}")
+            return False, f"Lỗi: {e}"
+
+    def get_units(self):
+        try:
+            docs = self.unit_col.order_by("name").stream()
+            return [{"id": doc.id, **doc.to_dict()} for doc in docs]
+        except Exception as e:
+            logging.error(f"Error getting units: {e}")
+            return []
+
+    def delete_unit(self, unit_id):
+        try:
+            self.unit_col.document(unit_id).delete()
+            return True, "Xóa đơn vị thành công."
+        except Exception as e:
+            logging.error(f"Error deleting unit {unit_id}: {e}")
+            return False, f"Lỗi: {e}"
+# --- END INLINED UnitManager ---
 
 class ProductManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection = self.db.collection('products')
+        # Initialize managers directly
         self.category_manager = CategoryManager(self.db)
         self.unit_manager = UnitManager(self.db)
         self.image_handler = self._initialize_image_handler()
@@ -24,14 +101,11 @@ class ProductManager:
                 creds_info = dict(st.secrets["drive_oauth"])
                 if creds_info.get('refresh_token'):
                     return ImageHandler(credentials_info=creds_info)
-                else:
-                    logging.warning("ImageHandler not initialized: 'refresh_token' is missing from 'drive_oauth' secrets.")
             except Exception as e:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
-        else:
-            logging.warning("ImageHandler not initialized: 'drive_oauth' secret not found.")
         return None
 
+    # Category and Unit pass-through methods
     def get_categories(self): return self.category_manager.get_categories()
     def add_category(self, name, prefix): return self.category_manager.create_category(name, prefix)
     def delete_category(self, cat_id): return self.category_manager.delete_category(cat_id)
@@ -41,6 +115,7 @@ class ProductManager:
     def delete_unit(self, unit_id): return self.unit_manager.delete_unit(unit_id)
 
     def _handle_image_update(self, sku, image_file, delete_image_flag):
+        # ... (rest of the functions remain the same)
         if not self.image_handler:
             st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo.")
             return None
@@ -60,7 +135,6 @@ class ProductManager:
             if current_image_id:
                 try:
                     self.image_handler.delete_image_by_id(current_image_id)
-                    logging.info(f"Đã xóa ảnh cũ (ID: {current_image_id}) cho sản phẩm {sku}.")
                 except Exception as e:
                     st.warning(f"Không thể xóa ảnh cũ. Lỗi: {e}.")
             if delete_image_flag and not image_file:
@@ -70,7 +144,6 @@ class ProductManager:
             try:
                 new_image_id = self.image_handler.upload_product_image(image_file, self.product_image_folder_id, sku)
                 if new_image_id:
-                    st.toast(f"Đã tải ảnh lên thành công cho sản phẩm {sku}.")
                     return new_image_id
                 else:
                     st.error("Tải ảnh lên thất bại.")
@@ -89,7 +162,6 @@ class ProductManager:
             
             @firestore.transactional
             def _create_in_transaction(transaction, cat_ref, product_data):
-                # Robustly get the category snapshot, handling different return types from transaction.get()
                 cat_snap = transaction.get(cat_ref)
                 if isinstance(cat_snap, (list, tuple)):
                     cat_snapshot = cat_snap[0].to_dict()
@@ -121,8 +193,6 @@ class ProductManager:
                 new_image_id = self._handle_image_update(sku, image_file, delete_image_flag=False)
                 if new_image_id is not None:
                     self.collection.document(sku).update({'image_id': new_image_id})
-                else:
-                    st.warning(f"Sản phẩm '{product_data['name']}' đã được tạo (SKU: {sku}), nhưng tải ảnh lên thất bại.")
 
             return True, f"Tạo sản phẩm '{product_data['name']}' (SKU: {sku}) thành công!"
         except Exception as e:
@@ -141,8 +211,7 @@ class ProductManager:
                 new_image_id = self._handle_image_update(sku, image_file, delete_image)
                 if new_image_id is not None:
                     updates['image_id'] = new_image_id
-                else:
-                    return False, f"Cập nhật ảnh cho sản phẩm {sku} thất bại."
+                # Removed the failure return here to allow metadata updates even if image fails
             
             if updates:
                 updates['updated_at'] = firestore.SERVER_TIMESTAMP
@@ -165,7 +234,7 @@ class ProductManager:
             product_ref = self.collection.document(product_id)
             product_doc = product_ref.get().to_dict()
             
-            if product_doc and product_doc.get('image_id'):
+            if product_doc and product_doc.get('image_id') and self.image_handler:
                 try:
                     self.image_handler.delete_image_by_id(product_doc['image_id'])
                 except Exception as e:
@@ -180,7 +249,7 @@ class ProductManager:
     def get_all_products(self, show_inactive=False):
         try:
             query = self.collection if show_inactive else self.collection.where(filter=FieldFilter("active", "==", True))
-            docs = query.order_by("sku").stream()
+            docs = query.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
             return [{"id": doc.id, **doc.to_dict()} for doc in docs]
         except Exception as e:
             logging.error(f"Error getting all products: {e}")
@@ -203,7 +272,6 @@ class ProductManager:
     def get_listed_products_for_branch(self, branch_id: str):
         try:
             all_active_products = self.get_all_products()
-            # This logic needs to be updated based on the actual price structure
             return all_active_products 
         except Exception as e:
             logging.error(f"Error in get_listed_products_for_branch: {e}")
