@@ -51,7 +51,6 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                     st.write("Ảnh sản phẩm:")
                     delete_image = False
                     
-                    # --- REFACTORED IMAGE LOGIC ---
                     image_id_to_edit = editing_product.get('image_id') if editing_product else None
                     image_url_to_edit = prod_mgr.image_handler.get_public_view_url(image_id_to_edit)
                     st.image(image_url_to_edit, width=150)
@@ -79,6 +78,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                             if success:
                                 st.success(msg)
                                 st.session_state.editing_product_id = None
+                                st.cache_data.clear() # <<< SỬA LỖI: Xóa cache để đảm bảo dữ liệu mới được tải
                                 st.rerun()
                             else:
                                 st.error(msg)
@@ -110,7 +110,6 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
             p_cols = st.columns([1, 1, 4, 2, 1, 2])
             p_cols[0].write(p['sku'])
             
-            # --- REFACTORED IMAGE LOGIC ---
             image_url = prod_mgr.image_handler.get_public_view_url(p.get('image_id'))
             p_cols[1].image(image_url, width=60)
 
@@ -142,6 +141,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                 if c1.button("XÁC NHẬN XÓA", key=f"confirm_delete_{p['id']}", type="primary"):
                     prod_mgr.hard_delete_product(p['id'])
                     st.session_state.deleting_product_id = None
+                    st.cache_data.clear() # <<< SỬA LỖI: Xóa cache khi xóa sản phẩm
                     st.rerun()
                 if c2.button("Hủy bỏ", key=f"cancel_delete_{p['id']}"):
                     st.session_state.deleting_product_id = None
@@ -162,7 +162,10 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                     if st.form_submit_button("➕ Thêm Danh mục"):
                         if new_cat_name and new_cat_prefix:
                             success, msg = prod_mgr.add_category(new_cat_name, new_cat_prefix)
-                            if success: st.success(msg); st.rerun()
+                            if success: 
+                                st.success(msg)
+                                st.cache_data.clear() # <<< SỬA LỖI: Xóa cache 
+                                st.rerun()
                             else: st.error(msg)
                         else: st.warning("Vui lòng nhập đủ tên và tiền tố.")
                 
@@ -178,6 +181,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                         cat_cols[1].code(cat.get('prefix', 'N/A'))
                         if cat_cols[2].button("🗑️", key=f"del_cat_{cat['id']}", use_container_width=True):
                             prod_mgr.delete_category(cat['id'])
+                            st.cache_data.clear() # <<< SỬA LỖI: Xóa cache 
                             st.rerun()
 
             with set_c2:
@@ -187,7 +191,10 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                     if st.form_submit_button("➕ Thêm Đơn vị"):
                         if new_unit_name:
                             success, msg = prod_mgr.add_unit(new_unit_name)
-                            if success: st.success(msg); st.rerun()
+                            if success: 
+                                st.success(msg)
+                                st.cache_data.clear() # <<< SỬA LỖI: Xóa cache 
+                                st.rerun()
                             else: st.error(msg)
                         else: st.warning("Vui lòng nhập tên đơn vị.")
 
@@ -202,4 +209,5 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                         unit_cols[0].write(unit['name'])
                         if unit_cols[1].button("🗑️", key=f"del_unit_{unit['id']}", use_container_width=True):
                             prod_mgr.delete_unit(unit['id'])
+                            st.cache_data.clear() # <<< SỬA LỖI: Xóa cache 
                             st.rerun()
