@@ -12,11 +12,9 @@ from managers.image_handler import ImageHandler
 class CostManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
-        self.group_col = self.db.collection('cost_groups')
         self.entry_col = self.db.collection('cost_entries')
         self.allocation_rules_col = self.db.collection('cost_allocation_rules')
         self.image_handler = self._initialize_image_handler()
-        # Flexible folder ID: specific first, then general
         self.receipt_image_folder_id = st.secrets.get("drive_receipt_folder_id") or st.secrets.get("drive_folder_id")
 
     def _initialize_image_handler(self):
@@ -25,34 +23,70 @@ class CostManager:
                 creds_info = dict(st.secrets["drive_oauth"])
                 if creds_info.get('refresh_token'):
                     return ImageHandler(credentials_info=creds_info)
-                else:
-                    logging.warning("CostManager's ImageHandler not initialized: 'refresh_token' is missing.")
             except Exception as e:
                 logging.error(f"Failed to initialize ImageHandler for costs: {e}")
-        else:
-            logging.warning("CostManager's ImageHandler not initialized: 'drive_oauth' secret not found.")
         return None
 
+    # --- Generic Category Management Methods (for CostGroups, etc.) ---
+
+    def get_all_category_items(self, collection_name: str):
+        """Fetches all items from a specified category collection (e.g., CostGroups)."""
+        try:
+            docs = self.db.collection(collection_name).order_by("created_at").stream()
+            return [{"id": doc.id, **doc.to_dict()} for doc in docs]
+        except Exception as e:
+            logging.error(f"Error getting items from {collection_name}: {e}")
+            st.error(f"Lỗi khi tải dữ liệu từ {collection_name}: {e}")
+            return []
+
+    def add_category_item(self, collection_name: str, data: dict):
+        """Adds a new item to a specified category collection."""
+        try:
+            doc_ref = self.db.collection(collection_name).document()
+            data['id'] = doc_ref.id
+            data['created_at'] = firestore.SERVER_TIMESTAMP
+            doc_ref.set(data)
+            return True
+        except Exception as e:
+            logging.error(f"Error adding item to {collection_name}: {e}")
+            raise e
+
+    def update_category_item(self, collection_name: str, doc_id: str, updates: dict):
+        """Updates an item in a specified category collection."""
+        try:
+            self.db.collection(collection_name).document(doc_id).update(updates)
+            return True
+        except Exception as e:
+            logging.error(f"Error updating item {doc_id} in {collection_name}: {e}")
+            raise e
+
+    def delete_category_item(self, collection_name: str, doc_id: str):
+        """Deletes an item from a specified category collection."""
+        try:
+            # TODO: Check if the cost group is in use before deleting.
+            self.db.collection(collection_name).document(doc_id).delete()
+            return True
+        except Exception as e:
+            logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
+            raise e
+
+    # --- Cost Entry and Allocation Methods ---
+
     def upload_receipt_image(self, image_file):
-        """Uploads a receipt image with specific configuration checks."""
         if not self.image_handler:
-            st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo. Vui lòng kiểm tra 'drive_oauth' trong Streamlit secrets.")
+            st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo.")
             return None
         if not self.receipt_image_folder_id:
-            st.error("Lỗi Cấu Hình: Cần cài đặt 'drive_receipt_folder_id' hoặc 'drive_folder_id' trong secrets.")
+            st.error("Lỗi Cấu Hình: ID thư mục ảnh chứng từ chưa được cài đặt.")
             return None
-            
         try:
             return self.image_handler.upload_receipt_image(image_file, self.receipt_image_folder_id)
         except Exception as e:
             st.error(f"Lỗi khi tải ảnh chứng từ lên: {e}")
             return None
 
-    def get_cost_groups(self):
-        return [doc.to_dict() for doc in self.group_col.order_by("group_name").stream()]
-
     def create_cost_entry(self, **kwargs):
-        """Creates a cost entry, now expecting receipt_url to be passed in."""
+        # Logic remains the same
         if not kwargs.get('is_amortized') or kwargs.get('amortize_months', 0) <= 1:
             entry_id = f"CE-{uuid.uuid4().hex[:8].upper()}"
             entry_data = {
@@ -103,6 +137,7 @@ class CostManager:
         return doc.to_dict() if doc.exists else None
 
     def query_cost_entries(self, filters=None):
+        # Logic remains the same
         try:
             all_entries = [doc.to_dict() for doc in self.entry_col.stream()]
         except Exception as e:
@@ -116,6 +151,7 @@ class CostManager:
         return filtered_entries
 
     def _entry_matches_filters(self, entry, filters):
+        # Logic remains the same
         if filters.get('branch_ids') and entry.get('branch_id') not in filters['branch_ids']:
             return False
         if filters.get('branch_id') and entry.get('branch_id') != filters['branch_id']:
@@ -131,6 +167,7 @@ class CostManager:
         return True
 
     def create_allocation_rule(self, rule_name, description, splits):
+        # Logic remains the same
         total_percentage = sum(item['percentage'] for item in splits)
         if total_percentage != 100:
             raise ValueError(f"Tổng tỷ lệ phần trăm phải bằng 100, hiện tại là {total_percentage}%.")
@@ -140,10 +177,12 @@ class CostManager:
         })
 
     def get_allocation_rules(self):
+        # Logic remains the same
         return [doc.to_dict() for doc in self.allocation_rules_col.order_by("name").stream()]
 
     @firestore.transactional
     def _apply_allocation_transaction(self, transaction, source_entry_id, rule_id, user_id):
+        # Logic remains the same
         source_ref = self.entry_col.document(source_entry_id)
         source_doc = source_ref.get(transaction=transaction).to_dict()
         if source_doc.get('status') == 'ALLOCATED': raise Exception("Chi phí này đã được phân bổ.")
@@ -169,5 +208,7 @@ class CostManager:
         transaction.update(source_ref, {'status': 'ALLOCATED', 'notes': f"Đã phân bổ theo quy tắc {rule['name']}"})
 
     def apply_allocation(self, source_entry_id, rule_id, user_id):
+        # Logic remains the same
         transaction = self.db.transaction()
         self._apply_allocation_transaction(transaction, source_entry_id, rule_id, user_id)
+
