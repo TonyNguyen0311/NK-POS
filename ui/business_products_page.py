@@ -51,7 +51,8 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
     st.divider()
 
     # --- DỮ LIỆU --- #
-    all_catalog_products = prod_mgr.get_all_products()
+    # FIX: Get all products from catalog, not just active ones
+    all_catalog_products = prod_mgr.get_all_products(active_only=False)
     all_prices = price_mgr.get_all_prices()
     prices_in_branch = {p['sku']: p for p in all_prices if p.get('branch_id') == selected_branch_id}
     listed_skus = prices_in_branch.keys()
@@ -63,7 +64,6 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
     listed_products = [p for p in all_catalog_products if p['sku'] in listed_skus]
 
     # --- NIÊM YẾT SẢN PHẨM MỚI (SỬA LỖI & CẢI TIẾN) --- #
-    # Luôn mở và hiển thị form
     with st.expander("➕ Niêm yết sản phẩm mới vào chi nhánh", expanded=True):
         if not all_catalog_products:
             st.warning("Chưa có sản phẩm nào trong danh mục chung. Vui lòng thêm sản phẩm ở trang 'Danh mục Sản phẩm' trước.")
