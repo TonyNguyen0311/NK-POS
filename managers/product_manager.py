@@ -8,7 +8,6 @@ from google.cloud.firestore_v1.base_query import And, FieldFilter
 from managers.image_handler import ImageHandler
 from managers.price_manager import PriceManager
 
-# Define a hash function for the ProductManager class
 def hash_product_manager(manager):
     return "ProductManager"
 
@@ -30,7 +29,6 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
         return None
 
-    @st.cache_data(ttl=300, hash_funcs={ProductManager: hash_product_manager})
     def get_all_category_items(self, collection_name: str):
         try:
             docs = self.db.collection(collection_name).order_by("created_at").stream()
@@ -191,7 +189,6 @@ class ProductManager:
             logging.error(f"Error deleting product {product_id}: {e}")
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
-    @st.cache_data(ttl=600, hash_funcs={ProductManager: hash_product_manager})
     def get_all_products(self, active_only: bool = True):
         try:
             base_query = self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -212,7 +209,6 @@ class ProductManager:
                 st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
-    @st.cache_data(ttl=600, hash_funcs={ProductManager: hash_product_manager})
     def get_product_by_id(self, product_id):
         if not product_id: return None
         try:
@@ -232,38 +228,40 @@ class ProductManager:
             st.error("Lỗi: Price Manager không được khởi tạo trong Product Manager.")
             return []
         try:
-            # 1. Get all products from the general catalog (sẽ sử dụng cache nếu có).
             all_products = self.get_all_products(active_only=False)
-            
-            # 2. Get all price records from all branches (sẽ sử dụng cache nếu có).
             all_branch_prices = self.price_mgr.get_all_prices()
-            
-            # 3. Create a dictionary for quick lookup for the specific branch.
             branch_price_map = {
                 p['sku']: p for p in all_branch_prices 
                 if p.get('branch_id') == branch_id
             }
-
-            # 4. Filter and combine product info with branch-specific pricing.
             listed_products = []
             for prod in all_products:
                 sku = prod.get('sku')
-                if not sku: continue # Skip if product has no SKU
-
+                if not sku: continue
                 if sku in branch_price_map:
                     price_info = branch_price_map[sku]
-                    # Check if the product is marked as 'is_active' for business in this branch.
                     if price_info.get('is_active', False):
-                        # Combine and clarify price fields
                         prod_with_price = {
                             **prod,
-                            'selling_price': price_info.get('price', 0), # This is the branch-specific selling price
-                            'base_price': prod.get('base_price', 0) # This is the general base price
+                            'selling_price': price_info.get('price', 0),
+                            'base_price': prod.get('base_price', 0)
                         }
                         listed_products.append(prod_with_price)
-            
             return listed_products
         except Exception as e:
             logging.error(f"Error in get_listed_products_for_branch for branch '{branch_id}': {e}")
             st.error(f"Đã xảy ra lỗi khi tải sản phẩm cho chi nhánh. Chi tiết: {e}")
             return []
+
+# Apply decorators after the class is defined to avoid NameError
+ProductManager.get_all_category_items = st.cache_data(
+    ttl=300, hash_funcs={ProductManager: hash_product_manager}
+)(ProductManager.get_all_category_items)
+
+ProductManager.get_all_products = st.cache_data(
+    ttl=600, hash_funcs={ProductManager: hash_product_manager}
+)(ProductManager.get_all_products)
+
+ProductManager.get_product_by_id = st.cache_data(
+    ttl=600, hash_funcs={ProductManager: hash_product_manager}
+)(ProductManager.get_product_by_id)

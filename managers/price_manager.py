@@ -4,7 +4,6 @@ import uuid
 import pytz
 import streamlit as st
 
-# Define a hash function for the PriceManager class
 def hash_price_manager(manager):
     return "PriceManager"
 
@@ -14,7 +13,6 @@ class PriceManager:
         self.prices_col = self.db.collection('branch_prices')
         self.schedules_col = self.db.collection('price_schedules')
 
-    # --- CÁC HÀM QUẢN LÝ GIÁ TRỰC TIẾP ---
     def set_price(self, sku: str, branch_id: str, price: float):
         if not all([sku, branch_id, price >= 0]):
             raise ValueError("Thông tin SKU, chi nhánh và giá là bắt buộc.")
@@ -38,16 +36,14 @@ class PriceManager:
         self.get_all_prices.clear()
         self.get_active_prices_for_branch.clear()
 
-    @st.cache_data(ttl=300, hash_funcs={PriceManager: hash_price_manager})
     def get_all_prices(self):
         docs = self.prices_col.stream()
         return [doc.to_dict() for doc in docs]
 
-    @st.cache_data(ttl=300, hash_funcs={PriceManager: hash_price_manager})
     def get_active_prices_for_branch(self, branch_id: str):
         """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh (đã sửa lỗi)."""
         try:
-            all_prices = self.get_all_prices() # Tận dụng cache
+            all_prices = self.get_all_prices()
             active_products = [
                 p for p in all_prices 
                 if p.get('branch_id') == branch_id and p.get('is_active', False)
@@ -57,12 +53,10 @@ class PriceManager:
             print(f"Error getting active prices for branch {branch_id}: {e}")
             return []
 
-    @st.cache_data(ttl=300, hash_funcs={PriceManager: hash_price_manager})
     def get_price(self, sku: str, branch_id: str):
         doc = self.prices_col.document(f"{branch_id}_{sku}").get()
         return doc.to_dict() if doc.exists else None
 
-    # --- CÁC HÀM MỚI CHO LỊCH TRÌNH GIÁ ---
     def schedule_price_change(self, sku: str, branch_id: str, new_price: float, apply_date: datetime, created_by: str):
         if not all([sku, branch_id, new_price > 0, apply_date, created_by]):
             return False, "Dữ liệu không hợp lệ."
@@ -119,7 +113,6 @@ class PriceManager:
         for doc in query.stream():
             schedule = doc.to_dict()
             try:
-                # Khi lịch trình được áp dụng, các hàm set_price sẽ tự động xóa cache.
                 self.set_price(schedule['sku'], schedule['branch_id'], schedule['new_price'])
                 doc.reference.update({"status": "APPLIED"})
                 applied_count += 1
@@ -130,3 +123,16 @@ class PriceManager:
             print(f"Applied {applied_count} price schedules.")
 
         return applied_count
+
+# Apply decorators after the class is defined
+PriceManager.get_all_prices = st.cache_data(
+    ttl=300, hash_funcs={PriceManager: hash_price_manager}
+)(PriceManager.get_all_prices)
+
+PriceManager.get_active_prices_for_branch = st.cache_data(
+    ttl=300, hash_funcs={PriceManager: hash_price_manager}
+)(PriceManager.get_active_prices_for_branch)
+
+PriceManager.get_price = st.cache_data(
+    ttl=300, hash_funcs={PriceManager: hash_price_manager}
+)(PriceManager.get_price)

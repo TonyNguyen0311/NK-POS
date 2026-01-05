@@ -5,7 +5,6 @@ import streamlit as st
 
 # Define a hash function for the BranchManager class
 def hash_branch_manager(manager):
-    # Since the manager is essentially a singleton, we can use a constant identifier.
     return "BranchManager"
 
 class BranchManager:
@@ -27,7 +26,6 @@ class BranchManager:
         self.list_branches.clear()
         return new_data
 
-    @st.cache_data(ttl=3600, hash_funcs={BranchManager: hash_branch_manager})
     def list_branches(self, active_only: bool = True):
         """Lấy danh sách chi nhánh, có thể chỉ lấy các chi nhánh đang hoạt động."""
         query = self.collection
@@ -37,7 +35,6 @@ class BranchManager:
         docs = query.stream()
         return [doc.to_dict() for doc in docs]
 
-    @st.cache_data(ttl=3600, hash_funcs={BranchManager: hash_branch_manager})
     def get_branch(self, branch_id):
         """Lấy thông tin chi tiết của một chi nhánh."""
         if not branch_id:
@@ -55,3 +52,12 @@ class BranchManager:
         self.list_branches.clear()
         self.get_branch.clear()
         return self.get_branch(branch_id) # Trả về dữ liệu đã cập nhật
+
+# Apply decorators after the class is defined to avoid NameError
+BranchManager.list_branches = st.cache_data(
+    ttl=3600, hash_funcs={BranchManager: hash_branch_manager}
+)(BranchManager.list_branches)
+
+BranchManager.get_branch = st.cache_data(
+    ttl=3600, hash_funcs={BranchManager: hash_branch_manager}
+)(BranchManager.get_branch)
