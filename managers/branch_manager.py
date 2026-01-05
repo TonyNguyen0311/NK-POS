@@ -22,7 +22,7 @@ class BranchManager:
         self.list_branches.clear()
         return new_data
 
-    # SỬA LỖI: Thêm _self_unhashable=True để tránh lỗi cache với đối tượng `self`
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=3600, _self_unhashable=True)
     def list_branches(self, active_only: bool = True):
         """Lấy danh sách chi nhánh, có thể chỉ lấy các chi nhánh đang hoạt động."""
@@ -33,7 +33,7 @@ class BranchManager:
         docs = query.stream()
         return [doc.to_dict() for doc in docs]
 
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=3600, _self_unhashable=True)
     def get_branch(self, branch_id):
         """Lấy thông tin chi tiết của một chi nhánh."""

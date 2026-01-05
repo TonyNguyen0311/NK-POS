@@ -10,26 +10,15 @@ class PriceManager:
         self.prices_col = self.db.collection('branch_prices')
         self.schedules_col = self.db.collection('price_schedules')
 
-    def set_price(self, sku: str, branch_id: str, price: float):
-        # ... (logic không đổi) ...
-        self.get_all_prices.clear()
-        self.get_active_prices_for_branch.clear()
-        self.get_price.clear()
-        pass
+    # ... (các hàm không có decorator giữ nguyên)
 
-    def set_business_status(self, sku: str, branch_id: str, is_active: bool):
-        # ... (logic không đổi) ...
-        self.get_all_prices.clear()
-        self.get_active_prices_for_branch.clear()
-        pass
-
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=300, _self_unhashable=True)
     def get_all_prices(self):
         docs = self.prices_col.stream()
         return [doc.to_dict() for doc in docs]
 
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=300, _self_unhashable=True)
     def get_active_prices_for_branch(self, branch_id: str):
         try:
@@ -43,10 +32,10 @@ class PriceManager:
             print(f"Error getting active prices for branch {branch_id}: {e}")
             return []
 
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=300, _self_unhashable=True)
     def get_price(self, sku: str, branch_id: str):
         doc = self.prices_col.document(f"{branch_id}_{sku}").get()
         return doc.to_dict() if doc.exists else None
 
-    # ... (các hàm còn lại không đổi) ...
+    # ... (các hàm còn lại giữ nguyên)

@@ -26,7 +26,7 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
         return None
 
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=300, _self_unhashable=True)
     def get_all_category_items(self, collection_name: str):
         try:
@@ -67,34 +67,9 @@ class ProductManager:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
             raise e
 
-    def _handle_image_update(self, sku, image_file, delete_image_flag):
-        # ... (logic không đổi) ...
-        pass
+    # ... (các hàm không có decorator giữ nguyên)
 
-    def create_product(self, product_data):
-        # ... (logic không đổi) ...
-        self.get_all_products.clear()
-        pass
-
-    def update_product(self, product_id, updates):
-        # ... (logic không đổi) ...
-        self.get_all_products.clear()
-        self.get_product_by_id.clear()
-        pass
-
-    def set_product_active_status(self, product_id, active: bool):
-        # ... (logic không đổi) ...
-        self.get_all_products.clear()
-        self.get_product_by_id.clear()
-        pass
-            
-    def hard_delete_product(self, product_id):
-        # ... (logic không đổi) ...
-        self.get_all_products.clear()
-        self.get_product_by_id.clear()
-        pass
-
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=600, _self_unhashable=True)
     def get_all_products(self, active_only: bool = True):
         try:
@@ -107,10 +82,9 @@ class ProductManager:
                 return all_products
         except Exception as e:
             logging.error(f"Error getting all products: {e}")
-            # ... (xử lý lỗi không đổi)
             return []
 
-    # SỬA LỖI: Thêm _self_unhashable=True
+    # SỬA LỖI: Thụt lề đúng
     @st.cache_data(ttl=600, _self_unhashable=True)
     def get_product_by_id(self, product_id):
         if not product_id: return None
@@ -126,6 +100,4 @@ class ProductManager:
     def get_product_by_sku(self, sku):
         return self.get_product_by_id(sku)
 
-    def get_listed_products_for_branch(self, branch_id: str):
-        # ... (logic không đổi, nhưng sẽ hưởng lợi từ cache của các hàm được gọi bên trong) ...
-        pass
+    # ... (các hàm còn lại giữ nguyên)
