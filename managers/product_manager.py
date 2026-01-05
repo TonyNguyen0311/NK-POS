@@ -173,23 +173,26 @@ class ProductManager:
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
     def get_all_products(self, active_only: bool = True):
-        """
-        Fetches products from the collection.
-
-        Args:
-            active_only (bool): If True (default), fetches only active products.
-                                If False, fetches all products.
-        """
         try:
-            query = self.products_collection
+            # Sửa lỗi: Chỉ sắp xếp, không lọc bằng where() phức tạp
+            base_query = self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
+            docs = base_query.stream()
+
+            all_products = [{"id": doc.id, **doc.to_dict()} for doc in docs]
+
+            # Lọc trong Python nếu cần
             if active_only:
-                query = query.where(filter=FieldFilter("active", "==", True))
-            
-            docs = query.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
-            return [{"id": doc.id, **doc.to_dict()} for doc in docs]
+                return [p for p in all_products if p.get('active', False)]
+            else:
+                return all_products
+
         except Exception as e:
             logging.error(f"Error getting all products: {e}")
-            st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
+            # Hiển thị thông báo lỗi thân thiện hơn cho người dùng
+            if "requires an index" in str(e):
+                st.error("Lỗi truy vấn cơ sở dữ liệu. Vui lòng liên hệ quản trị viên.")
+            else:
+                st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
     def get_product_by_id(self, product_id):
