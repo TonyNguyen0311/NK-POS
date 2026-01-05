@@ -213,31 +213,38 @@ class ProductManager:
             st.error("Lỗi: Price Manager không được khởi tạo trong Product Manager.")
             return []
         try:
-            # 1. Get all products from the general catalog, regardless of their global active status
+            # 1. Get all products from the general catalog.
             all_products = self.get_all_products(active_only=False)
             
-            # 2. Get all price/business records for the specific branch
-            prices_in_branch = self.price_mgr.get_all_prices_for_branch(branch_id)
+            # 2. Get all price records from all branches.
+            all_branch_prices = self.price_mgr.get_all_prices()
             
-            # 3. Create a dictionary for quick lookup
-            branch_price_map = {p['sku']: p for p in prices_in_branch}
+            # 3. Create a dictionary for quick lookup for the specific branch.
+            branch_price_map = {
+                p['sku']: p for p in all_branch_prices 
+                if p.get('branch_id') == branch_id
+            }
 
-            # 4. Filter products that are actively sold in the branch and attach price info
+            # 4. Filter and combine product info with branch-specific pricing.
             listed_products = []
             for prod in all_products:
-                sku = prod['sku']
+                sku = prod.get('sku')
+                if not sku: continue # Skip if product has no SKU
+
                 if sku in branch_price_map:
                     price_info = branch_price_map[sku]
-                    # Check if the product is marked as 'is_active' for business in this branch
+                    # Check if the product is marked as 'is_active' for business in this branch.
                     if price_info.get('is_active', False):
-                        # Attach the current price to the product dictionary
+                        # Combine and clarify price fields
                         prod_with_price = {
                             **prod,
-                            'price': price_info.get('price', 0) 
+                            'selling_price': price_info.get('price', 0), # This is the branch-specific selling price
+                            'base_price': prod.get('base_price', 0) # This is the general base price
                         }
                         listed_products.append(prod_with_price)
             
             return listed_products
         except Exception as e:
-            logging.error(f"Error in get_listed_products_for_branch: {e}")
+            logging.error(f"Error in get_listed_products_for_branch for branch '{branch_id}': {e}")
+            st.error(f"Đã xảy ra lỗi khi tải sản phẩm cho chi nhánh. Chi tiết: {e}")
             return []
