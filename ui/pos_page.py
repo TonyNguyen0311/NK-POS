@@ -49,7 +49,7 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
                 sku = p.get('sku')
                 if not sku: continue
 
-                stock_quantity = branch_inventory.get(sku, {}).get('quantity', 0)
+                stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
                 
                 if stock_quantity > 0:
                     with col.container(border=True, height=360):
