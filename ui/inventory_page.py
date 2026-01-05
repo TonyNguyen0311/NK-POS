@@ -39,18 +39,24 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     st.divider()
 
     # --- 3. LOAD DATA ONCE --- 
+    # Tối ưu: Cache dữ liệu tổng hợp trong 2 phút, giảm tải cho DB
     @st.cache_data(ttl=120)
     def load_data(branch_id):
         branch_inventory_data = inv_mgr.get_inventory_by_branch(branch_id)
-        all_products_data = prod_mgr.get_all_products()
+        all_products_data = prod_mgr.get_all_products(active_only=False) # Lấy tất cả sản phẩm
         return branch_inventory_data, all_products_data
 
     with st.spinner("Đang tải dữ liệu kho..."):
         branch_inventory, all_products = load_data(selected_branch)
         product_map = {p['sku']: p for p in all_products if 'sku' in p}
 
-    # --- 4. TABS STRUCTURE ---
-    tab1, tab2, tab3 = st.tabs(["📊 Tình hình Tồn kho", "📥 Nhập hàng", "📜 Lịch sử Thay đổi"])
+    # --- 4. TABS STRUCTURE (CẬP NHẬT: Thêm tab Điều chỉnh kho) ---
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Tình hình Tồn kho", 
+        "📥 Nhập hàng", 
+        "✍️ Điều chỉnh Kho", # TAB MỚI
+        "📜 Lịch sử Thay đổi"
+    ])
 
     # =========================================================
     # TAB 1: CURRENT INVENTORY STATUS
@@ -65,7 +71,10 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             for sku, inv_data in branch_inventory.items():
                 prod_info = product_map.get(sku, {})
                 quantity = inv_data.get('stock_quantity', 0)
-                threshold = inv_data.get('low_stock_threshold', 10)
+                
+                # Tối ưu: Lấy ngưỡng tồn kho từ dữ liệu sản phẩm, nếu không có thì mặc định là 10
+                default_threshold = prod_info.get('low_stock_threshold', 10)
+                threshold = inv_data.get('low_stock_threshold', default_threshold)
                 
                 if quantity <= 0:
                     status = "Hết hàng"
@@ -104,38 +113,41 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                  st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
 
     # =========================================================
-    # TAB 2: RECEIVE STOCK
+    # TAB 2: RECEIVE STOCK (NHẬP HÀNG)
     # =========================================================
     with tab2:
         st.subheader("Tạo Phiếu Nhập hàng")
+        product_options = {p['sku']: f"{p['name']} ({p['sku']})" for p in all_products if 'sku' in p}
         
-        with st.form("receive_stock_form", clear_on_submit=True):
-            product_options = {p['sku']: f"{p['name']} ({p['sku']})" for p in all_products if 'sku' in p}
-            selected_sku = st.selectbox("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options[x])
-            
-            c1, c2 = st.columns(2)
-            quantity = c1.number_input("Số lượng nhập", min_value=1, step=1)
-            cost_price = c2.number_input("Giá nhập (trên 1 đơn vị)", min_value=0, step=1000)
+        if not product_options:
+            st.warning("Chưa có sản phẩm nào được tạo. Vui lòng tạo sản phẩm trước.")
+        else:
+            with st.form("receive_stock_form", clear_on_submit=True):
+                selected_sku = st.selectbox("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options[x], key="receive_sku")
+                
+                c1, c2 = st.columns(2)
+                quantity = c1.number_input("Số lượng nhập", min_value=1, step=1, key="receive_qty")
+                cost_price = c2.number_input("Giá nhập (trên 1 đơn vị)", min_value=0, step=1000, key="receive_cost")
 
-            supplier = st.text_input("Nhà cung cấp (tùy chọn)")
-            notes = st.text_area("Ghi chú (ví dụ: mã PO, số hóa đơn...)")
+                supplier = st.text_input("Nhà cung cấp (tùy chọn)", key="receive_supplier")
+                notes = st.text_area("Ghi chú (ví dụ: mã PO, số hóa đơn...)", key="receive_notes")
 
-            submitted = st.form_submit_button("Xác nhận Nhập hàng", use_container_width=True)
+                submitted = st.form_submit_button("Xác nhận Nhập hàng", use_container_width=True)
 
-        if submitted:
-            if not selected_sku:
-                st.warning("Vui lòng chọn một sản phẩm.")
-            else:
+            if submitted:
                 with st.spinner("Đang xử lý nghiệp vụ nhập hàng..."):
                     try:
+                        # Tính toán số lượng mới
                         current_quantity = inv_mgr.get_stock_quantity(selected_sku, selected_branch)
                         new_quantity = current_quantity + quantity
-
+                        
+                        # Chuẩn bị ghi chú
                         full_notes = f"Nhà cung cấp: {supplier}. Ghi chú: {notes}."
                         if cost_price > 0:
                             total_cost = cost_price * quantity
                             full_notes += f" Tổng giá nhập: {format_currency(total_cost, 'VND')} ({format_currency(cost_price, 'VND')}/đv)."
 
+                        # Gọi hàm điều chỉnh kho
                         inv_mgr.adjust_stock(
                             sku=selected_sku,
                             branch_id=selected_branch,
@@ -145,17 +157,68 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                             notes=full_notes
                         )
                         st.success(f"Nhập hàng thành công cho sản phẩm {product_options[selected_sku]}.")
-                        st.cache_data.clear()
+                        st.cache_data.clear() # Xóa cache để cập nhật giao diện
                         st.rerun()
                     except Exception as e:
                         st.error(f"Đã xảy ra lỗi khi nhập hàng: {e}")
 
     # =========================================================
-    # TAB 3: ADJUSTMENT HISTORY
+    # TAB 3: STOCK ADJUSTMENT (ĐIỀU CHỈNH KHO) - MỚI
     # =========================================================
     with tab3:
+        st.subheader("Tạo Phiếu Điều chỉnh Kho")
+        st.markdown("Dùng cho các trường hợp kiểm kê, hàng hỏng, mất mát...")
+
+        if not product_options:
+            st.warning("Chưa có sản phẩm nào được tạo. Vui lòng tạo sản phẩm trước.")
+        else:
+            with st.form("adjustment_form", clear_on_submit=True):
+                adj_sku = st.selectbox("Chọn sản phẩm để điều chỉnh", options=list(product_options.keys()), format_func=lambda x: product_options[x], key="adj_sku")
+                
+                # Hiển thị số lượng tồn hiện tại để người dùng tham khảo
+                current_stock = inv_mgr.get_stock_quantity(adj_sku, selected_branch)
+                st.info(f"Tồn kho hiện tại của sản phẩm này là: **{format_number(current_stock)}**")
+                
+                actual_quantity = st.number_input("Nhập số lượng thực tế sau điều chỉnh", min_value=0, step=1, key="adj_actual_qty")
+                
+                adjustment_reason = st.selectbox(
+                    "Lý do điều chỉnh",
+                    ("Kiểm kê định kỳ", "Hàng hỏng", "Mất mát", "Khác"),
+                    key="adj_reason"
+                )
+                
+                adjustment_notes = st.text_area("Ghi chú chi tiết cho lần điều chỉnh", key="adj_notes")
+
+                adj_submitted = st.form_submit_button("Xác nhận Điều chỉnh", use_container_width=True)
+
+            if adj_submitted:
+                if actual_quantity == current_stock:
+                    st.warning("Số lượng thực tế bằng với tồn kho hiện tại. Không có gì thay đổi.")
+                else:
+                    with st.spinner("Đang thực hiện điều chỉnh kho..."):
+                        try:
+                            # Ghi nhận điều chỉnh
+                            inv_mgr.adjust_stock(
+                                sku=adj_sku,
+                                branch_id=selected_branch,
+                                new_quantity=actual_quantity,
+                                user_id=user_info['uid'],
+                                reason=adjustment_reason,
+                                notes=adjustment_notes
+                            )
+                            st.success(f"Điều chỉnh kho thành công cho sản phẩm {product_options[adj_sku]}.")
+                            st.cache_data.clear() # Xóa cache để cập nhật giao diện
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Đã xảy ra lỗi khi điều chỉnh kho: {e}")
+
+    # =========================================================
+    # TAB 4: ADJUSTMENT HISTORY (LỊCH SỬ THAY ĐỔI)
+    # =========================================================
+    with tab4:
         st.subheader("Lịch sử Thay đổi Kho")
         
+        # Tối ưu: Cache lịch sử trong 1 phút
         @st.cache_data(ttl=60)
         def load_history(branch_id):
             return inv_mgr.get_inventory_adjustments_history(branch_id=branch_id, limit=200)
@@ -168,7 +231,14 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
         else:
             history_df = pd.DataFrame(history)
             history_df['Sản phẩm'] = history_df['sku'].map(lambda s: product_map.get(s, {}).get('name', s))
-            history_df['Thời gian'] = pd.to_datetime(history_df['timestamp']).dt.strftime('%d/%m/%Y %H:%M')
+            
+            # Chuyển đổi timestamp an toàn hơn
+            try:
+                history_df['Thời gian'] = pd.to_datetime(history_df['timestamp']).dt.tz_convert('Asia/Ho_Chi_Minh').dt.strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                history_df['Thời gian'] = pd.to_datetime(history_df['timestamp']).dt.strftime('%d/%m/%Y %H:%M')
+
+
             history_df.rename(columns={
                 'delta': 'Thay đổi',
                 'quantity_before': 'Tồn trước',
@@ -179,6 +249,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             
             display_columns = ['Thời gian', 'Sản phẩm', 'Thay đổi', 'Tồn trước', 'Tồn sau', 'Lý do', 'Ghi chú']
             
+            # Hiển thị tất cả các dòng, không cắt bớt
             st.dataframe(
                 history_df[display_columns].style.format({
                     'Thay đổi': format_number,
@@ -186,5 +257,6 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                     'Tồn sau': format_number
                 }),
                 use_container_width=True, 
-                hide_index=True
+                hide_index=True,
+                height=(len(history_df) + 1) * 35 
             )

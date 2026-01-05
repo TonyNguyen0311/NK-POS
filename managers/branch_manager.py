@@ -1,5 +1,7 @@
+
 import uuid
 from datetime import datetime
+import streamlit as st
 
 class BranchManager:
     def __init__(self, firebase_client):
@@ -16,8 +18,12 @@ class BranchManager:
         new_data['created_at'] = datetime.now().isoformat()
         
         self.collection.document(branch_id).set(new_data)
+        # Xóa cache sau khi tạo mới
+        self.list_branches.clear()
         return new_data
 
+    # Tối ưu: Cache danh sách chi nhánh trong 1 giờ
+    @st.cache_data(ttl=3600)
     def list_branches(self, active_only: bool = True):
         """Lấy danh sách chi nhánh, có thể chỉ lấy các chi nhánh đang hoạt động."""
         query = self.collection
@@ -27,6 +33,8 @@ class BranchManager:
         docs = query.stream()
         return [doc.to_dict() for doc in docs]
 
+    # Tối ưu: Cache thông tin chi tiết của một chi nhánh trong 1 giờ
+    @st.cache_data(ttl=3600)
     def get_branch(self, branch_id):
         """Lấy thông tin chi tiết của một chi nhánh."""
         if not branch_id:
@@ -40,4 +48,7 @@ class BranchManager:
         """Cập nhật thông tin cho một chi nhánh."""
         updates['updated_at'] = datetime.now().isoformat()
         self.collection.document(branch_id).update(updates)
+        # Xóa cache sau khi cập nhật
+        self.list_branches.clear()
+        self.get_branch.clear()
         return self.get_branch(branch_id) # Trả về dữ liệu đã cập nhật

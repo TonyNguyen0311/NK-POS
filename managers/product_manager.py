@@ -26,6 +26,8 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
         return None
 
+    # Tối ưu: Cache danh sách các mục con (vd: danh mục, đơn vị) trong 5 phút
+    @st.cache_data(ttl=300)
     def get_all_category_items(self, collection_name: str):
         try:
             docs = self.db.collection(collection_name).order_by("created_at").stream()
@@ -41,6 +43,8 @@ class ProductManager:
             data['id'] = doc_ref.id
             data['created_at'] = firestore.SERVER_TIMESTAMP
             doc_ref.set(data)
+            # Xóa cache sau khi thêm mới
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error adding item to {collection_name}: {e}")
@@ -49,6 +53,8 @@ class ProductManager:
     def update_category_item(self, collection_name: str, doc_id: str, updates: dict):
         try:
             self.db.collection(collection_name).document(doc_id).update(updates)
+            # Xóa cache sau khi cập nhật
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error updating item {doc_id} in {collection_name}: {e}")
@@ -57,6 +63,8 @@ class ProductManager:
     def delete_category_item(self, collection_name: str, doc_id: str):
         try:
             self.db.collection(collection_name).document(doc_id).delete()
+            # Xóa cache sau khi xóa
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
@@ -122,6 +130,9 @@ class ProductManager:
                 new_image_id = self._handle_image_update(sku, image_file, delete_image_flag=False)
                 if new_image_id is not None:
                     self.products_collection.document(sku).update({'image_id': new_image_id})
+            
+            # Xóa cache sản phẩm sau khi tạo mới
+            self.get_all_products.clear()
 
             return True, f"Tạo sản phẩm '{product_data['name']}' (SKU: {sku}) thành công!"
         except Exception as e:
@@ -145,6 +156,10 @@ class ProductManager:
                 updates['updated_at'] = firestore.SERVER_TIMESTAMP
                 product_ref.update(updates)
 
+            # Xóa cache sản phẩm và cache chi tiết sản phẩm
+            self.get_all_products.clear()
+            self.get_product_by_id.clear()
+
             return True, f"Sản phẩm {sku} đã được cập nhật thành công."
         except Exception as e:
             logging.error(f"Error updating product {product_id}: {e}")
@@ -153,6 +168,9 @@ class ProductManager:
     def set_product_active_status(self, product_id, active: bool):
         try:
             self.products_collection.document(product_id).update({'active': active, 'updated_at': firestore.SERVER_TIMESTAMP})
+            # Xóa cache sản phẩm sau khi thay đổi trạng thái
+            self.get_all_products.clear()
+            self.get_product_by_id.clear()
             return True, "Cập nhật trạng thái thành công"
         except Exception as e:
             return False, f"Lỗi: {e}"
@@ -169,11 +187,16 @@ class ProductManager:
                     logging.warning(f"Không thể xóa ảnh của sản phẩm {product_id}. Lỗi: {e}.")
             
             product_ref.delete()
+            # Xóa cache
+            self.get_all_products.clear()
+            self.get_product_by_id.clear()
             return True, f"Sản phẩm {product_id} đã được xóa vĩnh viễn."
         except Exception as e:
             logging.error(f"Error deleting product {product_id}: {e}")
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
+    # Tối ưu: Cache danh sách sản phẩm trong 10 phút
+    @st.cache_data(ttl=600)
     def get_all_products(self, active_only: bool = True):
         try:
             base_query = self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -194,6 +217,8 @@ class ProductManager:
                 st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
+    # Tối ưu: Cache chi tiết sản phẩm trong 10 phút
+    @st.cache_data(ttl=600)
     def get_product_by_id(self, product_id):
         if not product_id: return None
         try:
@@ -213,10 +238,10 @@ class ProductManager:
             st.error("Lỗi: Price Manager không được khởi tạo trong Product Manager.")
             return []
         try:
-            # 1. Get all products from the general catalog.
+            # 1. Get all products from the general catalog (sẽ sử dụng cache nếu có).
             all_products = self.get_all_products(active_only=False)
             
-            # 2. Get all price records from all branches.
+            # 2. Get all price records from all branches (sẽ sử dụng cache nếu có).
             all_branch_prices = self.price_mgr.get_all_prices()
             
             # 3. Create a dictionary for quick lookup for the specific branch.

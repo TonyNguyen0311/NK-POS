@@ -2,6 +2,7 @@
 from datetime import datetime, time
 import uuid
 import pytz
+import streamlit as st
 
 class PriceManager:
     def __init__(self, firebase_client):
@@ -20,6 +21,10 @@ class PriceManager:
             'price': price,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
+        # Xóa cache liên quan
+        self.get_all_prices.clear()
+        self.get_active_prices_for_branch.clear()
+        self.get_price.clear()
 
     def set_business_status(self, sku: str, branch_id: str, is_active: bool):
         doc_id = f"{branch_id}_{sku}"
@@ -27,26 +32,33 @@ class PriceManager:
             'is_active': is_active,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
+        # Xóa cache liên quan
+        self.get_all_prices.clear()
+        self.get_active_prices_for_branch.clear()
 
+    # Tối ưu: Cache danh sách giá trong 5 phút
+    @st.cache_data(ttl=300)
     def get_all_prices(self):
         docs = self.prices_col.stream()
         return [doc.to_dict() for doc in docs]
 
+    # Tối ưu: Cache danh sách giá đang hoạt động trong 5 phút
+    @st.cache_data(ttl=300)
     def get_active_prices_for_branch(self, branch_id: str):
         """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh (đã sửa lỗi)."""
         try:
-            # Đơn giản hóa truy vấn để chỉ lọc theo branch_id
-            docs_in_branch = self.prices_col.where('branch_id', '==', branch_id).stream()
-
-            # Lọc các sản phẩm 'is_active' bằng Python
+            all_prices = self.get_all_prices() # Tận dụng cache
             active_products = [
-                doc.to_dict() for doc in docs_in_branch if doc.to_dict().get('is_active', False)
+                p for p in all_prices 
+                if p.get('branch_id') == branch_id and p.get('is_active', False)
             ]
             return active_products
         except Exception as e:
             print(f"Error getting active prices for branch {branch_id}: {e}")
             return []
 
+    # Tối ưu: Cache giá của sản phẩm trong 5 phút
+    @st.cache_data(ttl=300)
     def get_price(self, sku: str, branch_id: str):
         doc = self.prices_col.document(f"{branch_id}_{sku}").get()
         return doc.to_dict() if doc.exists else None
@@ -78,18 +90,16 @@ class PriceManager:
             query = self.schedules_col.where('status', '==', 'PENDING')
             all_pending = [doc.to_dict() for doc in query.stream()]
             
-            # Lọc kết quả bằng Python thay vì truy vấn phức tạp
             product_schedules = [
                 s for s in all_pending 
                 if s.get('sku') == sku and s.get('branch_id') == branch_id
             ]
             
-            # Sắp xếp kết quả theo ngày
             product_schedules.sort(key=lambda s: s.get('start_date', datetime.max))
             
             return product_schedules
         except Exception as e:
-            print(f"Error getting pending schedules: {e}") # Log lỗi để dễ debug
+            print(f"Error getting pending schedules: {e}")
             return []
 
     def cancel_schedule(self, schedule_id: str):
@@ -110,10 +120,14 @@ class PriceManager:
         for doc in query.stream():
             schedule = doc.to_dict()
             try:
+                # Khi lịch trình được áp dụng, các hàm set_price sẽ tự động xóa cache.
                 self.set_price(schedule['sku'], schedule['branch_id'], schedule['new_price'])
                 doc.reference.update({"status": "APPLIED"})
                 applied_count += 1
             except Exception as e:
                 print(f"Error applying schedule {schedule['schedule_id']}: {e}")
         
+        if applied_count > 0:
+            print(f"Applied {applied_count} price schedules.")
+
         return applied_count
