@@ -23,27 +23,29 @@ class InventoryManager:
             'branch_id': branch_id
         }, merge=True)
 
-    @firestore.transactional
-    def _adjust_stock_transaction(self, transaction, sku, branch_id, new_quantity, user_id, reason, notes):
-        doc_id = self._get_doc_id(sku, branch_id)
-        inv_ref = self.inventory_col.document(doc_id)
-        inv_snapshot = inv_ref.get(transaction=transaction)
-        current_quantity = inv_snapshot.to_dict().get('stock_quantity', 0) if inv_snapshot.exists else 0
-        delta = new_quantity - current_quantity
-        if delta == 0: return
-
-        self.update_inventory(sku, branch_id, delta, transaction)
-        adj_id = f"ADJ-{uuid.uuid4().hex[:8].upper()}"
-        adj_ref = self.adjustments_col.document(adj_id)
-        transaction.set(adj_ref, {
-            "id": adj_id, "sku": sku, "branch_id": branch_id, "user_id": user_id,
-            "timestamp": datetime.now().isoformat(), "quantity_before": current_quantity,
-            "quantity_after": new_quantity, "delta": delta, "reason": reason, "notes": notes
-        })
-
     def adjust_stock(self, sku, branch_id, new_quantity, user_id, reason, notes):
         transaction = self.db.transaction()
-        self._adjust_stock_transaction(transaction, sku, branch_id, new_quantity, user_id, reason, notes)
+
+        @firestore.transactional
+        def _adjust_stock_transaction(transaction, sku, branch_id, new_quantity, user_id, reason, notes):
+            doc_id = self._get_doc_id(sku, branch_id)
+            inv_ref = self.inventory_col.document(doc_id)
+            inv_snapshot = inv_ref.get(transaction=transaction)
+            current_quantity = inv_snapshot.to_dict().get('stock_quantity', 0) if inv_snapshot.exists else 0
+            delta = new_quantity - current_quantity
+            if delta == 0: return
+
+            self.update_inventory(sku, branch_id, delta, transaction)
+            adj_id = f"ADJ-{uuid.uuid4().hex[:8].upper()}"
+            adj_ref = self.adjustments_col.document(adj_id)
+            transaction.set(adj_ref, {
+                "id": adj_id, "sku": sku, "branch_id": branch_id, "user_id": user_id,
+                "timestamp": datetime.now().isoformat(), "quantity_before": current_quantity,
+                "quantity_after": new_quantity, "delta": delta, "reason": reason, "notes": notes
+            })
+        
+        _adjust_stock_transaction(transaction, sku, branch_id, new_quantity, user_id, reason, notes)
+
 
     def get_stock_quantity(self, sku: str, branch_id: str) -> int:
         try:
