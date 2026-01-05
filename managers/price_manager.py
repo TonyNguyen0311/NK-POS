@@ -9,9 +9,8 @@ class PriceManager:
         self.prices_col = self.db.collection('branch_prices')
         self.schedules_col = self.db.collection('price_schedules')
 
-    # --- CÁC HÀM QUẢN LÝ GIÁ TRỰC TIẾP (GIỮ NGUYÊN) ---
+    # --- CÁC HÀM QUẢN LÝ GIÁ TRỰC TIẾP ---
     def set_price(self, sku: str, branch_id: str, price: float):
-        """Tạo hoặc cập nhật giá bán cho một SKU tại một chi nhánh."""
         if not all([sku, branch_id, price >= 0]):
             raise ValueError("Thông tin SKU, chi nhánh và giá là bắt buộc.")
         doc_id = f"{branch_id}_{sku}"
@@ -23,7 +22,6 @@ class PriceManager:
         }, merge=True)
 
     def set_business_status(self, sku: str, branch_id: str, is_active: bool):
-        """Thiết lập trạng thái kinh doanh (Đang bán/Tạm ngưng) cho sản phẩm."""
         doc_id = f"{branch_id}_{sku}"
         self.prices_col.document(doc_id).set({
             'is_active': is_active,
@@ -31,28 +29,22 @@ class PriceManager:
         }, merge=True)
 
     def get_all_prices(self):
-        """Lấy toàn bộ các bản ghi giá từ database."""
         docs = self.prices_col.stream()
         return [doc.to_dict() for doc in docs]
 
     def get_active_prices_for_branch(self, branch_id: str):
-        """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh (cho POS)."""
         docs = self.prices_col.where('branch_id', '==', branch_id).where('is_active', '==', True).stream()
         return [doc.to_dict() for doc in docs]
 
     def get_price(self, sku: str, branch_id: str):
-        """Lấy thông tin giá và trạng thái của một sản phẩm tại một chi nhánh."""
         doc = self.prices_col.document(f"{branch_id}_{sku}").get()
         return doc.to_dict() if doc.exists else None
 
     # --- CÁC HÀM MỚI CHO LỊCH TRÌNH GIÁ ---
-
     def schedule_price_change(self, sku: str, branch_id: str, new_price: float, apply_date: datetime, created_by: str):
-        """Tạo một lịch trình thay đổi giá trong tương lai."""
         if not all([sku, branch_id, new_price > 0, apply_date, created_by]):
             return False, "Dữ liệu không hợp lệ."
         
-        # Kết hợp ngày với thời gian đầu ngày (00:00:00) để đảm bảo tính nhất quán
         apply_datetime = datetime.combine(apply_date, time.min)
 
         schedule_id = f"SCH-{uuid.uuid4().hex[:8].upper()}"
@@ -61,8 +53,8 @@ class PriceManager:
             "sku": sku,
             "branch_id": branch_id,
             "new_price": new_price,
-            "start_date": apply_datetime, # <<< THAY ĐỔI: apply_date -> start_date
-            "status": "PENDING", # PENDING, APPLIED, CANCELED
+            "start_date": apply_datetime, 
+            "status": "PENDING",
             "created_at": datetime.now(),
             "created_by": created_by
         }
@@ -70,16 +62,26 @@ class PriceManager:
         return True, schedule_id
 
     def get_pending_schedules_for_product(self, sku: str, branch_id: str):
-        """Lấy các lịch trình đang chờ áp dụng cho một sản phẩm cụ thể."""
-        query = self.schedules_col \
-            .where('sku', '==', sku) \
-            .where('branch_id', '==', branch_id) \
-            .where('status', '==', 'PENDING') \
-            .order_by('start_date') # <<< THAY ĐỔI: apply_date -> start_date
-        return [doc.to_dict() for doc in query.stream()]
+        """Lấy các lịch trình đang chờ áp dụng cho một sản phẩm cụ thể (đã sửa lỗi)."""
+        try:
+            query = self.schedules_col.where('status', '==', 'PENDING')
+            all_pending = [doc.to_dict() for doc in query.stream()]
+            
+            # Lọc kết quả bằng Python thay vì truy vấn phức tạp
+            product_schedules = [
+                s for s in all_pending 
+                if s.get('sku') == sku and s.get('branch_id') == branch_id
+            ]
+            
+            # Sắp xếp kết quả theo ngày
+            product_schedules.sort(key=lambda s: s.get('start_date', datetime.max))
+            
+            return product_schedules
+        except Exception as e:
+            print(f"Error getting pending schedules: {e}") # Log lỗi để dễ debug
+            return []
 
     def cancel_schedule(self, schedule_id: str):
-        """Hủy một lịch trình đã được tạo."""
         doc_ref = self.schedules_col.document(schedule_id)
         if doc_ref.get().exists:
             doc_ref.update({"status": "CANCELED"})
@@ -87,29 +89,20 @@ class PriceManager:
         return False
 
     def apply_pending_schedules(self):
-        """
-        Job chạy để áp dụng các lịch trình giá đã đến hạn.
-        Đây là chức năng quan trọng cần được gọi định kỳ.
-        """
         now = datetime.now(pytz.utc)
-        # <<< THAY ĐỔI: Sửa đổi toàn bộ truy vấn để khớp với chỉ mục (status, start_date) >>>
         query = self.schedules_col \
             .where('status', '==', 'PENDING') \
             .where('start_date', '<=', now) \
-            .order_by('start_date') # Thêm order_by để sử dụng chỉ mục phức hợp
+            .order_by('start_date')
         
         applied_count = 0
         for doc in query.stream():
             schedule = doc.to_dict()
             try:
-                # Áp dụng giá mới vào collection chính
                 self.set_price(schedule['sku'], schedule['branch_id'], schedule['new_price'])
-                
-                # Cập nhật trạng thái lịch trình
                 doc.reference.update({"status": "APPLIED"})
                 applied_count += 1
             except Exception as e:
-                # Ghi log lỗi nếu cần thiết
                 print(f"Error applying schedule {schedule['schedule_id']}: {e}")
         
         return applied_count
