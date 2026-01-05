@@ -12,11 +12,9 @@ class ProductManager:
         self.db = firebase_client.db
         self.products_collection = self.db.collection('products')
         self.image_handler = self._initialize_image_handler()
-        # This ID is used for storing product images in a specific folder, e.g., in Google Drive.
         self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
 
     def _initialize_image_handler(self):
-        # Initializes the image handler, e.g., for Google Drive, using credentials from Streamlit secrets.
         if "drive_oauth" in st.secrets:
             try:
                 creds_info = dict(st.secrets["drive_oauth"])
@@ -26,10 +24,7 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
         return None
 
-    # --- Generic Category Management Methods ---
-
     def get_all_category_items(self, collection_name: str):
-        """Fetches all items from a specified category collection."""
         try:
             docs = self.db.collection(collection_name).order_by("created_at").stream()
             return [{"id": doc.id, **doc.to_dict()} for doc in docs]
@@ -39,9 +34,7 @@ class ProductManager:
             return []
 
     def add_category_item(self, collection_name: str, data: dict):
-        """Adds a new item to a specified category collection."""
         try:
-            # Generate a unique ID for the new item.
             doc_ref = self.db.collection(collection_name).document()
             data['id'] = doc_ref.id
             data['created_at'] = firestore.SERVER_TIMESTAMP
@@ -52,7 +45,6 @@ class ProductManager:
             raise e
 
     def update_category_item(self, collection_name: str, doc_id: str, updates: dict):
-        """Updates an item in a specified category collection."""
         try:
             self.db.collection(collection_name).document(doc_id).update(updates)
             return True
@@ -61,21 +53,14 @@ class ProductManager:
             raise e
 
     def delete_category_item(self, collection_name: str, doc_id: str):
-        """Deletes an item from a specified category collection."""
         try:
-            # TODO: Add a check to see if the item is currently in use before deleting.
-            # For example, check if any product is using this category or unit.
-            # For now, we proceed with direct deletion.
             self.db.collection(collection_name).document(doc_id).delete()
             return True
         except Exception as e:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
             raise e
 
-    # --- Product Management Methods ---
-    
     def _handle_image_update(self, sku, image_file, delete_image_flag):
-        # This function remains largely the same.
         if not self.image_handler:
             st.error("Lỗi Cấu Hình: Trình xử lý ảnh chưa được khởi tạo.")
             return None
@@ -115,11 +100,9 @@ class ProductManager:
         return current_image_id
 
     def create_product(self, product_data):
-        """Creates a new product with a simplified SKU generation."""
         image_file = product_data.pop('image_file', None)
         
         try:
-            # Simplified SKU generation. No longer dependent on category.
             sku = f"PROD-{uuid.uuid4().hex[:8].upper()}"
             
             new_product_data = {
@@ -131,10 +114,8 @@ class ProductManager:
                 'updated_at': firestore.SERVER_TIMESTAMP
             }
             
-            # Set the data for the new product
             self.products_collection.document(sku).set(new_product_data)
 
-            # Handle image upload after product creation
             if image_file:
                 new_image_id = self._handle_image_update(sku, image_file, delete_image_flag=False)
                 if new_image_id is not None:
@@ -146,7 +127,6 @@ class ProductManager:
             return False, f"Lỗi khi tạo sản phẩm: {e}"
 
     def update_product(self, product_id, updates):
-        # This function remains largely the same.
         image_file = updates.pop('image_file', None)
         delete_image = updates.pop('delete_image', False)
 
@@ -169,7 +149,6 @@ class ProductManager:
             return False, f"Lỗi khi cập nhật sản phẩm: {e}"
 
     def set_product_active_status(self, product_id, active: bool):
-        # This function remains the same.
         try:
             self.products_collection.document(product_id).update({'active': active, 'updated_at': firestore.SERVER_TIMESTAMP})
             return True, "Cập nhật trạng thái thành công"
@@ -177,7 +156,6 @@ class ProductManager:
             return False, f"Lỗi: {e}"
             
     def hard_delete_product(self, product_id):
-        # This function remains the same.
         try:
             product_ref = self.products_collection.document(product_id)
             product_doc = product_ref.get().to_dict()
@@ -194,18 +172,27 @@ class ProductManager:
             logging.error(f"Error deleting product {product_id}: {e}")
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
-    def get_all_products(self, show_inactive=False):
-        # This function remains the same.
+    def get_all_products(self, active_only: bool = True):
+        """
+        Fetches products from the collection.
+
+        Args:
+            active_only (bool): If True (default), fetches only active products.
+                                If False, fetches all products.
+        """
         try:
-            query = self.products_collection if show_inactive else self.products_collection.where(filter=FieldFilter("active", "==", True))
+            query = self.products_collection
+            if active_only:
+                query = query.where(filter=FieldFilter("active", "==", True))
+            
             docs = query.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
             return [{"id": doc.id, **doc.to_dict()} for doc in docs]
         except Exception as e:
             logging.error(f"Error getting all products: {e}")
+            st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
     def get_product_by_id(self, product_id):
-        # This function remains the same.
         if not product_id: return None
         try:
             doc = self.products_collection.document(product_id).get()
@@ -217,11 +204,9 @@ class ProductManager:
             return None
             
     def get_product_by_sku(self, sku):
-        # This function remains the same.
         return self.get_product_by_id(sku)
 
     def get_listed_products_for_branch(self, branch_id: str):
-        # This function remains the same.
         try:
             all_active_products = self.get_all_products()
             return all_active_products 
