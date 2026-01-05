@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
@@ -5,9 +6,10 @@ from datetime import date, datetime
 from managers.promotion_manager import PromotionManager
 from managers.product_manager import ProductManager
 from managers.branch_manager import BranchManager
+from ui._utils import render_page_title
 
 def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: ProductManager, branch_mgr: BranchManager):
-    st.title("🎁 Quản lý Khuyến mãi")
+    render_page_title("Quản lý Khuyến mãi")
 
     # Lấy dữ liệu cho các select box
     all_products = product_mgr.list_products()
@@ -16,37 +18,36 @@ def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: Product
     category_options = {c['id']: c['name'] for c in all_categories}
 
     # --- FORM TẠO/MÔ PHỎNG ---
-    with st.form("promo_form", clear_on_submit=True):
-        st.subheader("Tạo Chương trình Khuyến mãi Mới")
-        
-        promo_name = st.text_input("Tên chương trình", help="VD: Khai trương chi nhánh mới, xả hàng hè...")
-        promo_desc = st.text_area("Mô tả ngắn")
-        
-        c1, c2 = st.columns(2)
-        start_date = c1.date_input("Ngày bắt đầu", value=date.today())
-        end_date = c2.date_input("Ngày kết thúc", value=date(date.today().year, 12, 31))
+    with st.expander("📝 Tạo Chương trình Khuyến mãi Mới", expanded=True):
+        with st.form("promo_form", clear_on_submit=True):
+            promo_name = st.text_input("Tên chương trình", help="VD: Khai trương chi nhánh mới, xả hàng hè...")
+            promo_desc = st.text_area("Mô tả ngắn")
+            
+            c1, c2 = st.columns(2)
+            start_date = c1.date_input("Ngày bắt đầu", value=date.today())
+            end_date = c2.date_input("Ngày kết thúc", value=date(date.today().year, 12, 31))
 
-        st.write("**Phạm vi áp dụng:**")
-        scope_type = st.selectbox(
-            "Loại phạm vi", 
-            options=["ALL", "CATEGORY", "PRODUCT"],
-            format_func=lambda x: {"ALL": "Toàn bộ cửa hàng", "CATEGORY": "Theo danh mục sản phẩm", "PRODUCT": "Theo sản phẩm cụ thể"}.get(x, x)
-        )
-        scope_ids = []
-        if scope_type == "CATEGORY":
-            scope_ids = st.multiselect("Chọn danh mục", options=list(category_options.keys()), format_func=lambda x: category_options.get(x, x))
-        elif scope_type == "PRODUCT":
-            scope_ids = st.multiselect("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options.get(x, x))
+            st.write("**Phạm vi áp dụng:**")
+            scope_type = st.selectbox(
+                "Loại phạm vi", 
+                options=["ALL", "CATEGORY", "PRODUCT"],
+                format_func=lambda x: {"ALL": "Toàn bộ cửa hàng", "CATEGORY": "Theo danh mục sản phẩm", "PRODUCT": "Theo sản phẩm cụ thể"}.get(x, x)
+            )
+            scope_ids = []
+            if scope_type == "CATEGORY":
+                scope_ids = st.multiselect("Chọn danh mục", options=list(category_options.keys()), format_func=lambda x: category_options.get(x, x))
+            elif scope_type == "PRODUCT":
+                scope_ids = st.multiselect("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options.get(x, x))
 
-        st.write("**Quy tắc giảm giá:**")
-        c1, c2 = st.columns(2)
-        auto_discount = c1.number_input("Giảm giá tự động (%)", 0, 100, 10)
-        manual_limit = c2.number_input("Giảm thêm thủ công tối đa (%)", 0, 100, 5, help="Giới hạn cho nhân viên khi giảm giá thêm trên tổng hóa đơn.")
-        
-        st.write("**Ràng buộc:**")
-        min_margin = st.number_input("Biên lợi nhuận tối thiểu bắt buộc (%)", 0, 100, 10, help="Hệ thống sẽ không cho phép bán nếu giá sau giảm khiến lợi nhuận thấp hơn mức này.")
+            st.write("**Quy tắc giảm giá:**")
+            c1, c2 = st.columns(2)
+            auto_discount = c1.number_input("Giảm giá tự động (%)", 0, 100, 10)
+            manual_limit = c2.number_input("Giảm thêm thủ công tối đa (%)", 0, 100, 5, help="Giới hạn cho nhân viên khi giảm giá thêm trên tổng hóa đơn.")
+            
+            st.write("**Ràng buộc:**")
+            min_margin = st.number_input("Biên lợi nhuận tối thiểu bắt buộc (%)", 0, 100, 10, help="Hệ thống sẽ không cho phép bán nếu giá sau giảm khiến lợi nhuận thấp hơn mức này.")
 
-        submitted_create = st.form_submit_button("Lưu Chương trình", type="primary", use_container_width=True)
+            submitted_create = st.form_submit_button("Lưu Chương trình", type="primary", use_container_width=True)
 
     if submitted_create:
         if not promo_name or (scope_type != 'ALL' and not scope_ids):
@@ -77,8 +78,10 @@ def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: Product
             else:
                 st.error(f"Lỗi khi lưu: {message}")
 
+    st.divider()
+
     # --- HIỂN THỊ CÁC CHƯƠNG TRÌNH ĐÃ LƯU ---
-    st.header("Các chương trình đã lưu")
+    st.subheader("Danh sách các chương trình đã lưu")
     
     def format_scope(scope, product_map, category_map):
         scope_type = scope.get("type", "N/A")
