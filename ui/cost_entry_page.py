@@ -7,6 +7,7 @@ from managers.cost_manager import CostManager
 from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
 from ui._utils import render_page_header, render_branch_selector
+from utils.formatters import format_currency, format_number
 
 # --- Dialog for viewing receipt ---
 @st.dialog("Xem chứng từ")
@@ -29,11 +30,9 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     default_branch_id = user.get('default_branch_id')
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches()}
     
-    # FIX: Use the new generic method to get cost groups and update the key for the name
     cost_groups_raw = cost_mgr.get_all_category_items("CostGroups")
     group_map = {g['id']: g['category_name'] for g in cost_groups_raw}
 
-    # Handle dialog for viewing receipt
     if 'viewing_receipt_url' in st.session_state and st.session_state.viewing_receipt_url:
         view_receipt_dialog(st.session_state.viewing_receipt_url)
 
@@ -116,7 +115,6 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
         if 'all' not in selected_branches:
             filters['branch_ids'] = selected_branches
         else:
-            # If user can see all branches, filter by all available branches
             if user_role == 'admin':
                 filters['branch_ids'] = list(all_branches_map.keys())
             else:
@@ -134,7 +132,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                 df['branch_name'] = df['branch_id'].map(all_branches_map)
                 df['group_name'] = df['group_id'].map(group_map)
 
-                st.write(f"Tìm thấy {len(df)} mục chi phí.")
+                st.write(f"Tìm thấy {format_number(len(df))} mục chi phí.")
                 for index, row in df.iterrows():
                     st.markdown("---")
                     c1, c2, c3 = st.columns([2, 2, 1])
@@ -145,7 +143,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                              st.info(f"CAPEX / Khấu hao {row.get('amortize_months', 0)} tháng" if row.get('is_amortized') else "CAPEX", icon="📊")
 
                     with c2:
-                        st.markdown(f"**{row['amount']:,} VNĐ**")
+                        st.markdown(f"**{format_currency(row['amount'], 'đ')}**")
                         st.caption(f"Ngày: {row['entry_date']}")
                     with c3:
                         if row.get('receipt_url'):

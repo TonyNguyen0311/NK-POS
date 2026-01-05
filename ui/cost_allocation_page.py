@@ -1,15 +1,14 @@
 
 import streamlit as st
+from utils.formatters import format_currency, format_number
 
 def render_cost_allocation_page(cost_mgr, branch_mgr, auth_mgr):
     st.header("Phân bổ Chi phí")
     st.info("Chức năng này cho phép phân bổ một khoản chi phí chung (như chi phí marketing, thuê văn phòng...) ra nhiều chi nhánh theo các quy tắc được định sẵn.")
 
-    # Lấy thông tin user và các chi nhánh
     user_info = auth_mgr.get_current_user_info()
     user_id = user_info['uid']
     all_branches = branch_mgr.list_branches()
-    # Giả sử trụ sở chính (Headquarter) có ID đặc biệt, ví dụ 'HQ'
     hq_branch_id = 'HQ' 
 
     tab1, tab2 = st.tabs(["Áp dụng Phân bổ Chi phí", "Quản lý Quy tắc Phân bổ"])
@@ -18,11 +17,10 @@ def render_cost_allocation_page(cost_mgr, branch_mgr, auth_mgr):
         render_rules_management(cost_mgr, all_branches)
 
     with tab1:
-        # Lấy danh sách chi phí từ Trụ sở chính (HQ) mà chưa được phân bổ
         filters = {
             'branch_id': hq_branch_id,
-            'status': 'ACTIVE', # Chỉ lấy chi phí chưa được xử lý
-            'source_entry_id_is_null': True # Chỉ lấy chi phí gốc
+            'status': 'ACTIVE',
+            'source_entry_id_is_null': True
         }
         unallocated_costs = cost_mgr.query_cost_entries(filters)
         render_apply_allocation(cost_mgr, hq_branch_id, user_id, unallocated_costs)
@@ -40,13 +38,12 @@ def render_rules_management(cost_mgr, all_branches):
         
         st.write("**Chi tiết phân bổ cho các chi nhánh:**")
         
-        # Hiển thị các split đã thêm
         total_percentage = 0
         for i, split in enumerate(st.session_state.rule_splits):
             branch_name = next((b['name'] for b in all_branches if b['id'] == split['branch_id']), split['branch_id'])
             cols = st.columns([3, 2, 1])
             cols[0].write(f"- **{branch_name}**")
-            cols[1].write(f"Tỷ lệ: {split['percentage']}%") # FIXED
+            cols[1].write(f"Tỷ lệ: {split['percentage']}%")
             total_percentage += split['percentage']
             if cols[2].button(f"Xóa", key=f"del_split_{i}"):
                 st.session_state.rule_splits.pop(i)
@@ -56,7 +53,6 @@ def render_rules_management(cost_mgr, all_branches):
         
         st.write("Thêm chi nhánh vào quy tắc:")
         form_cols = st.columns([3, 2, 1])
-        # Exclude HQ from being selected for allocation
         branch_list = [b for b in all_branches if b['id'] != 'HQ']
         branch_id = form_cols[0].selectbox("Chọn chi nhánh", options=[b['id'] for b in branch_list], format_func=lambda b_id: next(b['name'] for b in branch_list if b['id'] == b_id), key="rule_branch_select")
         percentage = form_cols[1].number_input("Tỷ lệ %", min_value=1, max_value=100, step=1, key="rule_percentage")
@@ -79,7 +75,7 @@ def render_rules_management(cost_mgr, all_branches):
                 try:
                     cost_mgr.create_allocation_rule(rule_name, description, st.session_state.rule_splits)
                     st.success("Đã tạo quy tắc thành công!")
-                    st.session_state.rule_splits = [] # Clear the state
+                    st.session_state.rule_splits = []
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
@@ -107,7 +103,6 @@ def render_rules_management(cost_mgr, all_branches):
 def render_apply_allocation(cost_mgr, hq_branch_id, user_id, unallocated_costs):
     st.subheader("Áp dụng Quy tắc vào Chi phí")
     
-    # Lấy danh sách quy tắc
     rules = cost_mgr.get_allocation_rules()
     rule_options = {rule['id']: rule for rule in rules if sum(s['percentage'] for s in rule['splits']) == 100}
     if not rule_options:
@@ -123,7 +118,7 @@ def render_apply_allocation(cost_mgr, hq_branch_id, user_id, unallocated_costs):
         with st.container():
             cols = st.columns([3, 2, 3, 2])
             cols[0].write(f"**{cost['name']}**")
-            cols[1].write(f"{cost['amount']:,} VND") # FIXED
+            cols[1].write(format_currency(cost['amount'], 'VND'))
             
             selected_rule_id = cols[2].selectbox(
                 "Chọn quy tắc phân bổ", 

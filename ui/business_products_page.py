@@ -9,27 +9,13 @@ from managers.branch_manager import BranchManager
 from managers.product_manager import ProductManager
 from managers.price_manager import PriceManager
 
-# --- Helper Functions for Formatting ---
-
-def format_price(price: int) -> str:
-    """Formats an integer price into a string with dot separators."""
-    if not isinstance(price, (int, float)):
-        return "0"
-    return f"{int(price):,}".replace(',', '.')
-
-def parse_price(price_str: str) -> int:
-    """Converts a formatted price string (e.g., '6.500.000') to an integer."""
-    if not isinstance(price_str, str):
-        return 0
-    try:
-        return int(price_str.replace('.', ''))
-    except ValueError:
-        return 0
+# Import shared formatters
+from utils.formatters import format_currency, parse_currency
 
 def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManager, prod_mgr: ProductManager, price_mgr: PriceManager):
     st.header("🛍️ Sản phẩm Kinh doanh")
 
-    # --- 1. PHÂN QUYỀN & CHỌN CHI NHÁNH --- #
+    # --- 1. PERMISSIONS & BRANCH SELECTION --- #
     user_info = auth_mgr.get_current_user_info()
     user_role = user_info.get('role', 'staff')
     user_id = user_info.get('uid')
@@ -59,7 +45,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
 
     st.divider()
 
-    # --- NÚT JOB ÁP DỤNG LỊCH TRÌNH GIÁ --- #
+    # --- PRICE SCHEDULE JOB BUTTON --- #
     if st.button("Chạy Job áp dụng giá theo lịch trình"):
         with st.spinner("Đang kiểm tra và áp dụng các lịch trình giá đã đến hạn..."):
             applied_count = price_mgr.apply_pending_schedules()
@@ -67,7 +53,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
 
     st.divider()
 
-    # --- DỮ LIỆU --- #
+    # --- DATA LOADING --- #
     all_catalog_products = prod_mgr.get_all_products(active_only=False)
     all_prices = price_mgr.get_all_prices()
     prices_in_branch = {p['sku']: p for p in all_prices if p.get('branch_id') == selected_branch_id}
@@ -76,7 +62,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
     unlisted_products = [p for p in all_catalog_products if p['sku'] not in listed_skus]
     listed_products = [p for p in all_catalog_products if p['sku'] in listed_skus]
 
-    # --- NIÊM YẾT SẢN PHẨM MỚI --- #
+    # --- LIST NEW PRODUCT --- #
     with st.expander("➕ Niêm yết sản phẩm mới vào chi nhánh", expanded=True):
         if not all_catalog_products:
             st.warning("Chưa có sản phẩm nào trong danh mục chung. Vui lòng thêm sản phẩm ở trang 'Danh mục Sản phẩm' trước.")
@@ -85,10 +71,11 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
         else:
             with st.form("form_list_product"):
                 product_to_list = st.selectbox("Chọn sản phẩm từ danh mục", options=unlisted_products, format_func=lambda p: f"{p['name']} ({p['sku']})")
+                # Using text_input with placeholder for better UX, parsing with the new utility
                 price_str = st.text_input("Nhập giá bán cho chi nhánh này (VNĐ)", placeholder="Ví dụ: 6.500.000")
                 
                 if st.form_submit_button("Niêm yết"):
-                    new_price = parse_price(price_str)
+                    new_price = parse_currency(price_str)
                     if product_to_list and new_price > 0:
                         sku = product_to_list['sku']
                         price_mgr.set_price(sku, selected_branch_id, new_price)
@@ -100,7 +87,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
 
     st.divider()
 
-    # --- DANH SÁCH SẢN PHẨM ĐANG KINH DOANH --- #
+    # --- LIST OF BUSINESS PRODUCTS --- #
     st.subheader(f"Sản phẩm kinh doanh tại: {allowed_branches_map[selected_branch_id]}")
     if not listed_products:
         st.info("Chưa có sản phẩm nào được niêm yết tại chi nhánh này.")
@@ -114,17 +101,17 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
             with st.container(border=True):
                 c1, c2, c3 = st.columns([2,1,1])
                 with c1: st.markdown(f"**{prod['name']}** `{prod['sku']}`")
-                with c2: st.metric("Giá hiện tại", f"{format_price(current_price)} VNĐ")
+                with c2: st.metric("Giá hiện tại", f"{format_currency(current_price, 'VNĐ')}")
                 with c3: st.toggle("Đang bán", value=is_active, key=f"status_{sku}", on_change=lambda sku=sku: price_mgr.set_business_status(sku, selected_branch_id, st.session_state[f"status_{sku}"]))
 
-                # --- LỊCH TRÌNH GIÁ ---
+                # --- PRICE SCHEDULING ---
                 with st.expander("🗓️ Lịch trình giá tương lai"):
                     pending_schedules = price_mgr.get_pending_schedules_for_product(sku, selected_branch_id)
                     if pending_schedules:
                         for schedule in pending_schedules:
                             sc_col1, sc_col2, sc_col3 = st.columns([2, 2, 1])
                             sc_col1.date_input("Ngày áp dụng", value=schedule['start_date'], disabled=True, key=f"date_{schedule['schedule_id']}")
-                            sc_col2.text_input("Giá mới", value=f"{format_price(schedule['new_price'])} VNĐ", disabled=True, key=f"price_{schedule['schedule_id']}")
+                            sc_col2.text_input("Giá mới", value=format_currency(schedule['new_price'], 'VNĐ'), disabled=True, key=f"price_{schedule['schedule_id']}")
                             if sc_col3.button("Hủy", key=f"cancel_{schedule['schedule_id']}"):
                                 price_mgr.cancel_schedule(schedule['schedule_id'])
                                 st.rerun()
@@ -132,13 +119,13 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
                     else:
                         st.write("Không có lịch trình nào.")
 
-                    # Form tạo lịch trình mới
+                    # Form for creating a new schedule
                     with st.form(key=f"schedule_form_{sku}"):
                         sf_c1, sf_c2, sf_c3 = st.columns([2,2,1])
                         new_apply_date = sf_c1.date_input("Chọn ngày áp dụng mới")
                         new_scheduled_price_str = sf_c2.text_input("Nhập giá mới (VNĐ)", placeholder="Ví dụ: 7.000.000")
                         if st.form_submit_button("Hẹn lịch"):
-                            new_scheduled_price = parse_price(new_scheduled_price_str)
+                            new_scheduled_price = parse_currency(new_scheduled_price_str)
                             if new_scheduled_price > 0:
                                 price_mgr.schedule_price_change(sku, selected_branch_id, new_scheduled_price, new_apply_date, user_id)
                                 st.success("Đã hẹn lịch thay đổi giá thành công!")

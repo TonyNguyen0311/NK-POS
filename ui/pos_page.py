@@ -1,10 +1,11 @@
 import streamlit as st
 from datetime import datetime
 from ui._utils import render_page_header, render_branch_selector
+from utils.formatters import format_currency, format_number
 
 # --- State Management ---
 def initialize_pos_state(branch_id):
-    """Initializes or resets the session state for the POS page for a given branch."""
+    """Initializes or resets the session state for the POS page for a given branch.""" 
     branch_key = f"pos_{branch_id}"
     if st.session_state.get('current_pos_branch_key') != branch_key:
         st.session_state.pos_cart = {}
@@ -13,21 +14,19 @@ def initialize_pos_state(branch_id):
         st.session_state.pos_category = "ALL"
         st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
         st.session_state.current_pos_branch_key = branch_key
-        st.rerun() # Rerun to ensure the UI updates with the new branch state
+        st.rerun() 
 
 # --- UI Rendering Functions ---
 
 def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Displays the product search, filter, and a visual gallery of products."""
+    """Displays the product search, filter, and a visual gallery of products.""" 
     
     with st.container(border=False):
         # 1. Filters
         search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input")
         st.session_state.pos_search = search_query
 
-        # Updated to use the new generic category method
         all_categories = product_mgr.get_all_category_items("ProductCategories")
-        # The field name for the category name is now 'category_name'
         cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
         cat_options["ALL"] = "Tất cả danh mục"
         selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category')
@@ -44,7 +43,6 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
         if not filtered_products:
             st.info("Không tìm thấy sản phẩm phù hợp.")
         else:
-            # Display products in a grid
             cols = st.columns(3)
             for i, p in enumerate(filtered_products):
                 col = cols[i % 3]
@@ -63,22 +61,20 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
                         selling_price = p.get('selling_price', 0)
                         base_price = p.get('base_price') 
 
+                        # Use format_currency
+                        price_html = f"<span style='color: #D22B2B; font-weight: bold;'>{format_currency(selling_price, 'đ')}</span>"
                         if base_price and base_price > selling_price:
-                            st.markdown(f"<span style='color: #D22B2B; font-weight: bold;'>{selling_price:,.0f}đ</span> "
-                                        f"<span style='text-decoration: line-through; color: grey; font-size: 0.9em;'>{base_price:,.0f}đ</span>", 
-                                        unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<span style='color: #D22B2B; font-weight: bold;'>{selling_price:,.0f}đ</span>", 
-                                        unsafe_allow_html=True)
+                            price_html += f" <span style='text-decoration: line-through; color: grey; font-size: 0.9em;'>{format_currency(base_price, 'đ')}</span>"
+                        st.markdown(price_html, unsafe_allow_html=True)
 
-                        st.caption(f"Tồn kho: {stock_quantity}")
+                        st.caption(f"Tồn kho: {format_number(stock_quantity)}")
 
                         if st.button("➕ Thêm", key=f"add_{sku}", use_container_width=True, type="primary"):
                             pos_mgr.add_item_to_cart(branch_id, p, stock_quantity)
                             st.rerun()
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
-    """Displays the items currently in the cart."""
+    """Displays the items currently in the cart.""" 
     if not cart_state['items']:
         st.info("Giỏ hàng đang trống. Hãy chọn sản phẩm từ Thư viện.")
         return
@@ -95,16 +91,18 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
                 
                 price_col, qty_col = st.columns([2,1])
                 with price_col:
-                    st.markdown(f"Thành tiền: **{item['line_total_after_auto_discount']:,.0f}đ**")
+                    # Use format_currency
+                    st.markdown(f"Thành tiền: **{format_currency(item['line_total_after_auto_discount'], 'đ')}**")
                     if item['auto_discount_applied'] > 0:
-                        st.markdown(f"<small style='color: green; text-decoration: line-through;'>*Cũ: {item['original_line_total']:,.0f}đ*</small>", unsafe_allow_html=True)
+                        st.markdown(f"<small style='color: green; text-decoration: line-through;'>*Cũ: {format_currency(item['original_line_total'], 'đ')}*</small>", unsafe_allow_html=True)
                 
                 with qty_col:
                     q_c1, q_c2, q_c3 = st.columns([1,1,1])
                     if q_c1.button("−", key=f"dec_{sku}", use_container_width=True):
                         pos_mgr.update_item_quantity(sku, item['quantity'] - 1)
                         st.rerun()
-                    q_c2.write(f"<div style='text-align: center; padding-top: 5px'>{item['quantity']}</div>", unsafe_allow_html=True)
+                    # Use format_number for quantity display
+                    q_c2.write(f"<div style='text-align: center; padding-top: 5px'>{format_number(item['quantity'])}</div>", unsafe_allow_html=True)
                     if q_c3.button("＋", key=f"inc_{sku}", use_container_width=True):
                         if item['quantity'] < item['stock']:
                             pos_mgr.update_item_quantity(sku, item['quantity'] + 1)
@@ -113,7 +111,7 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
                             st.toast("Vượt quá tồn kho!", icon="⚠️")
 
 def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
-    """Displays the customer selection, summary, and checkout button."""
+    """Displays the customer selection, summary, and checkout button.""" 
     with st.container(border=True):
         customers = customer_mgr.list_customers()
         customer_options = {c['id']: f"{c['name']} ({c['phone']})" for c in customers}
@@ -121,12 +119,13 @@ def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
         st.selectbox("👤 **Khách hàng**", options=list(customer_options.keys()), format_func=lambda x: customer_options.get(x, "N/A"), key='pos_customer')
         st.divider()
 
-        st.markdown(f"Tổng tiền hàng: <span style='float: right;'>{cart_state['subtotal']:,.0f}đ</span>", unsafe_allow_html=True)
+        # Use format_currency
+        st.markdown(f"Tổng tiền hàng: <span style='float: right;'>{format_currency(cart_state['subtotal'], 'đ')}</span>", unsafe_allow_html=True)
         if cart_state['total_auto_discount'] > 0:
-            st.markdown(f"<span style='color: green;'>Giảm giá KM:</span> <span style='float: right; color: green;'>- {cart_state['total_auto_discount']:,.0f}đ</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color: green;'>Giảm giá KM:</span> <span style='float: right; color: green;'>- {format_currency(cart_state['total_auto_discount'], 'đ')}</span>", unsafe_allow_html=True)
         
         st.markdown("---")
-        st.markdown(f"### **KHÁCH CẦN TRẢ:** <span style='float: right; color: #D22B2B;'>{cart_state['grand_total']:,.0f}đ</span>", unsafe_allow_html=True)
+        st.markdown(f"### **KHÁCH CẦN TRẢ:** <span style='float: right; color: #D22B2B;'>{format_currency(cart_state['grand_total'], 'đ')}</span>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
         c1, c2 = st.columns(2)
@@ -144,10 +143,12 @@ def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
 def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
     st.write("Vui lòng xác nhận lại thông tin đơn hàng trước khi thanh toán.")
     
-    st.markdown(f"- **Tổng cộng:** {len(cart_state['items'])} loại sản phẩm")
-    st.markdown(f"- **Tổng tiền hàng:** {cart_state['subtotal']:,.0f}đ")
-    st.markdown(f"- **Tổng cộng giảm:** {cart_state['total_auto_discount'] + cart_state['total_manual_discount']:,.0f}đ")
-    st.markdown(f"- **Khách cần trả:** **{cart_state['grand_total']:,.0f}đ**")
+    # Use format_currency and format_number
+    st.markdown(f"- **Tổng cộng:** {format_number(len(cart_state['items']))} loại sản phẩm")
+    st.markdown(f"- **Tổng tiền hàng:** {format_currency(cart_state['subtotal'], 'đ')}")
+    total_discount = cart_state['total_auto_discount'] + cart_state.get('total_manual_discount', 0)
+    st.markdown(f"- **Tổng cộng giảm:** {format_currency(total_discount, 'đ')}")
+    st.markdown(f"- **Khách cần trả:** **{format_currency(cart_state['grand_total'], 'đ')}**")
     st.divider()
 
     if st.button("✅ Xác nhận & In hóa đơn", use_container_width=True, type="primary"):
@@ -204,7 +205,7 @@ def render_pos_page(pos_mgr):
     main_col, order_col = st.columns([0.6, 0.4])
 
     with main_col:
-        tab_gallery, tab_cart = st.tabs([f"Thư viện Sản phẩm ({len(branch_products)})", f"Đơn hàng ({cart_state['total_items']})"])
+        tab_gallery, tab_cart = st.tabs([f"Thư viện Sản phẩm ({format_number(len(branch_products))})", f"Đơn hàng ({format_number(cart_state['total_items'])})"])
         with tab_gallery:
             render_product_gallery(pos_mgr, product_mgr, inventory_mgr, selected_branch_id)
         with tab_cart:

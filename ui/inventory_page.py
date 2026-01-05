@@ -7,11 +7,12 @@ from managers.inventory_manager import InventoryManager
 from managers.product_manager import ProductManager
 from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
-# Import UI utils
+
+# Import formatters and UI utils
 from ui._utils import render_page_header, render_branch_selector
+from utils.formatters import format_number, format_currency
 
 def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
-    # Use the new header utility
     render_page_header("Quản lý Tồn kho", "📦")
 
     # --- 1. GET USER INFO & PERMISSIONS ---
@@ -25,7 +26,6 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     default_branch_id = user_info.get('default_branch_id')
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches(active_only=False)}
 
-    # Determine allowed branches for the user
     if user_role == 'admin':
         allowed_branches_map = all_branches_map
     else:
@@ -34,12 +34,12 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     # --- 2. BRANCH SELECTOR ---
     selected_branch = render_branch_selector(allowed_branches_map, default_branch_id)
     if not selected_branch:
-        return # Stop if user has no branch access
+        return
     
     st.divider()
 
     # --- 3. LOAD DATA ONCE --- 
-    @st.cache_data(ttl=120) # Cache for 2 minutes to improve performance
+    @st.cache_data(ttl=120)
     def load_data(branch_id):
         branch_inventory_data = inv_mgr.get_inventory_by_branch(branch_id)
         all_products_data = prod_mgr.get_all_products()
@@ -85,7 +85,6 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             if inventory_list:
                 inventory_df = pd.DataFrame(inventory_list)
 
-                # Highlight rows based on status
                 def highlight_status(row):
                     if row['Trạng thái'] == 'Hết hàng':
                         return ['background-color: #ffcdd2'] * len(row)
@@ -93,7 +92,14 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         return ['background-color: #fff9c4'] * len(row)
                     return [''] * len(row)
 
-                st.dataframe(inventory_df.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
+                st.dataframe(
+                    inventory_df.style.apply(highlight_status, axis=1).format({
+                        'Số lượng': format_number,
+                        'Ngưỡng báo hết': format_number
+                    }),
+                    use_container_width=True, 
+                    hide_index=True
+                )
             else:
                  st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
 
@@ -132,7 +138,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                             notes=notes
                         )
                         st.success(f"Nhập hàng thành công cho sản phẩm {product_options[selected_sku]}.")
-                        st.cache_data.clear() # Clear cache to show updated data
+                        st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Đã xảy ra lỗi khi nhập hàng: {e}")
@@ -164,6 +170,14 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                 'notes': 'Ghi chú'
             }, inplace=True)
             
-            # Reorder columns for better readability
             display_columns = ['Thời gian', 'Sản phẩm', 'Thay đổi', 'Tồn trước', 'Tồn sau', 'Lý do', 'Ghi chú']
-            st.dataframe(history_df[display_columns], use_container_width=True, hide_index=True)
+            
+            st.dataframe(
+                history_df[display_columns].style.format({
+                    'Thay đổi': format_number,
+                    'Tồn trước': format_number,
+                    'Tồn sau': format_number
+                }),
+                use_container_width=True, 
+                hide_index=True
+            )

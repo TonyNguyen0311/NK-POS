@@ -3,6 +3,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
+from utils.formatters import format_currency, format_number
 
 def render_pnl_report_page(report_mgr, branch_mgr, auth_mgr):
     st.header("📈 Báo cáo Kết quả Kinh doanh (P&L)")
@@ -51,21 +52,20 @@ def render_pnl_report_page(report_mgr, branch_mgr, auth_mgr):
             st.success(f"Báo cáo cho: **{branch_options[selected_branch_key]}** từ **{start_date}** đến **{end_date}**")
             st.markdown("---")
 
-            # --- 2. DISPLAY METRICS ---
+            # --- 2. DISPLAY METRICS (using new formatter) ---
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Tổng Doanh thu", f"{pnl_data['total_revenue']:,.0f} đ")
-            col2.metric("Tổng Giá vốn (COGS)", f"{pnl_data['total_cogs']:,.0f} đ")
-            col3.metric("Lợi nhuận gộp", f"{pnl_data['gross_profit']:,.0f} đ", f"{pnl_data['gross_profit']-pnl_data['total_revenue']:,.0f} đ")
+            col1.metric("Tổng Doanh thu", format_currency(pnl_data['total_revenue'], currency_symbol="đ"))
+            col2.metric("Tổng Giá vốn (COGS)", format_currency(pnl_data['total_cogs'], currency_symbol="đ"))
+            col3.metric("Lợi nhuận gộp", format_currency(pnl_data['gross_profit'], currency_symbol="đ"), f"{format_currency(pnl_data['gross_profit'] - pnl_data['total_revenue'], currency_symbol='đ')}")
             
             net_profit_delta_color = "normal" if pnl_data['net_profit'] >= 0 else "inverse"
-            col4.metric("Lợi nhuận Ròng", f"{pnl_data['net_profit']:,.0f} đ", delta_color=net_profit_delta_color)
+            col4.metric("Lợi nhuận Ròng", format_currency(pnl_data['net_profit'], currency_symbol="đ"), delta_color=net_profit_delta_color)
 
             st.markdown("---")
             
             # --- 3. DISPLAY CHARTS & DETAILS ---
             st.subheader("Phân tích Chi phí Hoạt động (OPEX)")
             
-            # If there are no expenses, show a message and stop.
             if pnl_data['total_operating_expenses'] == 0:
                 st.info("Không phát sinh chi phí hoạt động trong kỳ báo cáo.")
             else:
@@ -91,7 +91,8 @@ def render_pnl_report_page(report_mgr, branch_mgr, auth_mgr):
                 
                 with st.expander("Xem chi tiết Chi phí hoạt động"):
                     if not df_group.empty:
-                        st.dataframe(df_group.style.format({'Số tiền': '{:,.0f} đ'}), use_container_width=True)
+                        # Use the new formatter for the dataframe
+                        st.dataframe(df_group.style.format({'Số tiền': lambda x: format_currency(x, currency_symbol='đ')}), use_container_width=True)
                     else:
                         st.write("Không có chi phí để hiển thị.")
 
