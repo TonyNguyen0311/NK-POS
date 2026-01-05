@@ -3,7 +3,6 @@ import uuid
 import logging
 import streamlit as st
 from google.cloud import firestore
-from streamlit.legacy_caching import clear_cache
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud.firestore_v1.base_query import And, FieldFilter
 from managers.image_handler import ImageHandler
@@ -43,7 +42,7 @@ class ProductManager:
             data['id'] = doc_ref.id
             data['created_at'] = firestore.SERVER_TIMESTAMP
             doc_ref.set(data)
-            clear_cache()
+            st.cache.clear()
             return True
         except Exception as e:
             logging.error(f"Error adding item to {collection_name}: {e}")
@@ -52,7 +51,7 @@ class ProductManager:
     def update_category_item(self, collection_name: str, doc_id: str, updates: dict):
         try:
             self.db.collection(collection_name).document(doc_id).update(updates)
-            clear_cache()
+            st.cache.clear()
             return True
         except Exception as e:
             logging.error(f"Error updating item {doc_id} in {collection_name}: {e}")
@@ -61,7 +60,7 @@ class ProductManager:
     def delete_category_item(self, collection_name: str, doc_id: str):
         try:
             self.db.collection(collection_name).document(doc_id).delete()
-            clear_cache()
+            st.cache.clear()
             return True
         except Exception as e:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
@@ -128,7 +127,7 @@ class ProductManager:
                 if new_image_id is not None:
                     self.products_collection.document(sku).update({'image_id': new_image_id})
             
-            clear_cache()
+            st.cache.clear()
 
             return True, f"Tạo sản phẩm '{product_data['name']}' (SKU: {sku}) thành công!"
         except Exception as e:
@@ -152,7 +151,7 @@ class ProductManager:
                 updates['updated_at'] = firestore.SERVER_TIMESTAMP
                 product_ref.update(updates)
 
-            clear_cache()
+            st.cache.clear()
 
             return True, f"Sản phẩm {sku} đã được cập nhật thành công."
         except Exception as e:
@@ -162,7 +161,7 @@ class ProductManager:
     def set_product_active_status(self, product_id, active: bool):
         try:
             self.products_collection.document(product_id).update({'active': active, 'updated_at': firestore.SERVER_TIMESTAMP})
-            clear_cache()
+            st.cache.clear()
             return True, "Cập nhật trạng thái thành công"
         except Exception as e:
             return False, f"Lỗi: {e}"
@@ -179,7 +178,7 @@ class ProductManager:
                     logging.warning(f"Không thể xóa ảnh của sản phẩm {product_id}. Lỗi: {e}.")
             
             product_ref.delete()
-            clear_cache()
+            st.cache.clear()
             return True, f"Sản phẩm {product_id} đã được xóa vĩnh viễn."
         except Exception as e:
             logging.error(f"Error deleting product {product_id}: {e}")

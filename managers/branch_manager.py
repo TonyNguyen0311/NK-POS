@@ -2,7 +2,6 @@
 import uuid
 from datetime import datetime
 import streamlit as st
-from streamlit.legacy_caching import clear_cache
 
 class BranchManager:
     def __init__(self, firebase_client):
@@ -20,7 +19,7 @@ class BranchManager:
         
         self.collection.document(branch_id).set(new_data)
         # Xóa cache sau khi tạo mới
-        clear_cache()
+        st.cache.clear()
         return new_data
 
     @st.cache(allow_output_mutation=True, ttl=3600)
@@ -48,5 +47,5 @@ class BranchManager:
         updates['updated_at'] = datetime.now().isoformat()
         self.collection.document(branch_id).update(updates)
         # Xóa cache sau khi cập nhật
-        clear_cache()
+        st.cache.clear()
         return self.get_branch(branch_id) # Trả về dữ liệu đã cập nhật

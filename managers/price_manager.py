@@ -3,7 +3,6 @@ from datetime import datetime, time
 import uuid
 import pytz
 import streamlit as st
-from streamlit.legacy_caching import clear_cache
 
 class PriceManager:
     def __init__(self, firebase_client):
@@ -22,7 +21,7 @@ class PriceManager:
             'price': price,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
-        clear_cache()
+        st.cache.clear()
 
     def set_business_status(self, sku: str, branch_id: str, is_active: bool):
         doc_id = f"{branch_id}_{sku}"
@@ -30,7 +29,7 @@ class PriceManager:
             'is_active': is_active,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
-        clear_cache()
+        st.cache.clear()
 
     @st.cache(allow_output_mutation=True, ttl=300)
     def get_all_prices(self):
