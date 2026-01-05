@@ -213,8 +213,8 @@ class ProductManager:
             st.error("Lỗi: Price Manager không được khởi tạo trong Product Manager.")
             return []
         try:
-            # 1. Get all active products from the general catalog
-            all_active_products = self.get_all_products(active_only=True)
+            # 1. Get all products from the general catalog, regardless of their global active status
+            all_products = self.get_all_products(active_only=False)
             
             # 2. Get all price/business records for the specific branch
             prices_in_branch = self.price_mgr.get_all_prices_for_branch(branch_id)
@@ -224,7 +224,7 @@ class ProductManager:
 
             # 4. Filter products that are actively sold in the branch and attach price info
             listed_products = []
-            for prod in all_active_products:
+            for prod in all_products:
                 sku = prod['sku']
                 if sku in branch_price_map:
                     price_info = branch_price_map[sku]
