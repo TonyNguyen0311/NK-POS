@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from managers.cost_manager import CostManager
 from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
-from ui._utils import render_page_header, render_branch_selector
+from ui._utils import render_page_title, render_branch_selector
 from utils.formatters import format_currency, format_number
 
 # --- Dialog for viewing receipt ---
@@ -18,7 +18,7 @@ def view_receipt_dialog(image_url):
 
 # --- Main Page Rendering ---
 def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
-    render_page_header("Ghi nhận Chi phí", "📝")
+    render_page_title("Ghi nhận Chi phí")
 
     user = auth_mgr.get_current_user_info()
     if not user:
@@ -164,17 +164,17 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
 
                         if can_delete:
                             if f"delete_confirm_{row['id']}" not in st.session_state:
-                                st.session_state[f"delete_confirm_{row['id']}"] = False
+                                st.session_state[f"delete_confirm_{row['id']}" ] = False
                             
-                            if st.session_state[f"delete_confirm_{row['id']}"]:
+                            if st.session_state[f"delete_confirm_{row['id']}" ]:
                                 if btn_c2.button("❌ XÁC NHẬN XÓA", key=f"confirm_delete_{row['id']}", use_container_width=True, type="primary"):
                                     cost_mgr.hard_delete_cost_entry(row['id'])
                                     st.warning(f"Đã XÓA VĨNH VIỄN phiếu chi '{row['name']}'.")
-                                    del st.session_state[f"delete_confirm_{row['id']}"]
+                                    del st.session_state[f"delete_confirm_{row['id']}" ]
                                     st.rerun()
                             else:
                                 if btn_c2.button("Xóa vĩnh viễn", key=f"delete_{row['id']}", use_container_width=True):
-                                    st.session_state[f"delete_confirm_{row['id']}"] = True
+                                    st.session_state[f"delete_confirm_{row['id']}" ] = True
                                     st.rerun()
 
         except Exception as e:
