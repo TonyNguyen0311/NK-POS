@@ -1,6 +1,7 @@
 
 import uuid
 import logging
+import streamlit as st
 from google.cloud import firestore
 from datetime import datetime
 
@@ -60,6 +61,8 @@ class InventoryManager:
         try:
             if not branch_id: return {}
             docs = self.inventory_col.where('branch_id', '==', branch_id).stream()
+            # Clear cache when inventory is updated
+            st.cache_data.clear()
             return {doc.to_dict()['sku']: doc.to_dict() for doc in docs if 'sku' in doc.to_dict()}
         except Exception as e:
             logging.error(f"Error fetching inventory for branch '{branch_id}': {e}")
