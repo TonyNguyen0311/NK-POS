@@ -124,7 +124,7 @@ def init_managers():
     st.session_state.promotion_mgr = PromotionManager(fb_client)
     st.session_state.cost_mgr = CostManager(fb_client)
     st.session_state.price_mgr = PriceManager(fb_client)
-    st.session_state.product_mgr = ProductManager(fb_client)
+    st.session_state.product_mgr = ProductManager(fb_client, price_mgr=st.session_state.price_mgr)
     st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
     st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
     st.session_state.pos_mgr = POSManager(
