@@ -9,6 +9,9 @@ from dateutil.relativedelta import relativedelta
 # Corrected import path to be absolute
 from managers.image_handler import ImageHandler
 
+def hash_cost_manager(manager):
+    return "CostManager"
+
 class CostManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
@@ -46,6 +49,7 @@ class CostManager:
             data['id'] = doc_ref.id
             data['created_at'] = firestore.SERVER_TIMESTAMP
             doc_ref.set(data)
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error adding item to {collection_name}: {e}")
@@ -55,6 +59,7 @@ class CostManager:
         """Updates an item in a specified category collection."""
         try:
             self.db.collection(collection_name).document(doc_id).update(updates)
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error updating item {doc_id} in {collection_name}: {e}")
@@ -65,6 +70,7 @@ class CostManager:
         try:
             # TODO: Check if the cost group is in use before deleting.
             self.db.collection(collection_name).document(doc_id).delete()
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
@@ -86,7 +92,6 @@ class CostManager:
             return None
 
     def create_cost_entry(self, **kwargs):
-        # Logic remains the same
         if not kwargs.get('is_amortized') or kwargs.get('amortize_months', 0) <= 1:
             entry_id = f"CE-{uuid.uuid4().hex[:8].upper()}"
             entry_data = {
@@ -97,9 +102,9 @@ class CostManager:
                 'source_entry_id': None
             }
             self.entry_col.document(entry_id).set(entry_data)
+            self.query_cost_entries.clear()
             return [entry_data]
         else:
-            # Amortization logic remains the same
             batch = self.db.batch()
             source_entry_id = f"CE-{uuid.uuid4().hex[:8].upper()}"
             source_ref = self.entry_col.document(source_entry_id)
@@ -129,6 +134,7 @@ class CostManager:
                 }
                 batch.set(child_ref, child_data)
             batch.commit()
+            self.query_cost_entries.clear()
             st.success(f"Đã tạo chi phí trả trước và {kwargs['amortize_months']} kỳ khấu hao.")
             return [source_entry_data]
 
@@ -137,7 +143,6 @@ class CostManager:
         return doc.to_dict() if doc.exists else None
 
     def query_cost_entries(self, filters=None):
-        # Logic remains the same
         try:
             all_entries = [doc.to_dict() for doc in self.entry_col.stream()]
         except Exception as e:
@@ -151,7 +156,6 @@ class CostManager:
         return filtered_entries
 
     def _entry_matches_filters(self, entry, filters):
-        # Logic remains the same
         if filters.get('branch_ids') and entry.get('branch_id') not in filters['branch_ids']:
             return False
         if filters.get('branch_id') and entry.get('branch_id') != filters['branch_id']:
@@ -167,7 +171,6 @@ class CostManager:
         return True
 
     def create_allocation_rule(self, rule_name, description, splits):
-        # Logic remains the same
         total_percentage = sum(item['percentage'] for item in splits)
         if total_percentage != 100:
             raise ValueError(f"Tổng tỷ lệ phần trăm phải bằng 100, hiện tại là {total_percentage}%.")
@@ -175,14 +178,13 @@ class CostManager:
         self.allocation_rules_col.document(rule_id).set({
             'id': rule_id, 'name': rule_name, 'description': description, 'splits': splits
         })
+        self.get_allocation_rules.clear()
 
     def get_allocation_rules(self):
-        # Logic remains the same
         return [doc.to_dict() for doc in self.allocation_rules_col.order_by("name").stream()]
 
     @firestore.transactional
     def _apply_allocation_transaction(self, transaction, source_entry_id, rule_id, user_id):
-        # Logic remains the same
         source_ref = self.entry_col.document(source_entry_id)
         source_doc = source_ref.get(transaction=transaction).to_dict()
         if source_doc.get('status') == 'ALLOCATED': raise Exception("Chi phí này đã được phân bổ.")
@@ -208,7 +210,13 @@ class CostManager:
         transaction.update(source_ref, {'status': 'ALLOCATED', 'notes': f"Đã phân bổ theo quy tắc {rule['name']}"})
 
     def apply_allocation(self, source_entry_id, rule_id, user_id):
-        # Logic remains the same
         transaction = self.db.transaction()
         self._apply_allocation_transaction(transaction, source_entry_id, rule_id, user_id)
+        self.query_cost_entries.clear()
+        self.get_cost_entry.clear()
 
+# Apply decorators after the class is defined
+CostManager.get_all_category_items = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_all_category_items)
+CostManager.get_cost_entry = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_cost_entry)
+CostManager.query_cost_entries = st.cache_data(ttl=300, hash_funcs={CostManager: hash_cost_manager})(CostManager.query_cost_entries)
+CostManager.get_allocation_rules = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_allocation_rules)

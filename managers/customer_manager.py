@@ -2,6 +2,10 @@
 import uuid
 from datetime import datetime
 from google.cloud import firestore
+import streamlit as st
+
+def hash_customer_manager(manager):
+    return "CustomerManager"
 
 class CustomerManager:
     def __init__(self, firebase_client):
@@ -20,7 +24,16 @@ class CustomerManager:
         new_data.setdefault('rank', 'Đồng')
 
         self.collection.document(customer_id).set(new_data)
+        self.list_customers.clear()
+        self.get_customer_by_id.clear()
         return new_data
+        
+    def update_customer(self, customer_id: str, data: dict):
+        """Cập nhật thông tin khách hàng."""
+        self.collection.document(customer_id).update(data)
+        self.list_customers.clear()
+        self.get_customer_by_id.clear()
+        return True
 
     def list_customers(self, query: str | None = None):
         """Lấy danh sách khách hàng. Có thể tìm kiếm theo tên hoặc sđt."""
@@ -48,6 +61,7 @@ class CustomerManager:
         """ 
         Cập nhật tổng chi tiêu và điểm của khách hàng.
         Hàm này được thiết kế để chạy bên trong một transaction lớn hơn (khi tạo đơn hàng).
+        Việc xóa cache sẽ do hàm gọi transaction xử lý sau khi commit thành công.
         """
         if not customer_id: return
 
@@ -58,3 +72,13 @@ class CustomerManager:
             'points': firestore.Increment(points_delta),
             'last_purchase_date': datetime.now().isoformat()
         })
+        # Cache clearing is delegated to the calling function managing the transaction
+
+# Apply decorators after the class is defined
+CustomerManager.list_customers = st.cache_data(
+    ttl=300, hash_funcs={CustomerManager: hash_customer_manager}
+)(CustomerManager.list_customers)
+
+CustomerManager.get_customer_by_id = st.cache_data(
+    ttl=300, hash_funcs={CustomerManager: hash_customer_manager}
+)(CustomerManager.get_customer_by_id)

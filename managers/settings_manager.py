@@ -1,11 +1,14 @@
 
 import streamlit as st
 
+def hash_settings_manager(manager):
+    return "SettingsManager"
+
 class SettingsManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection = self.db.collection('settings')
-        self._settings_doc_id = 'app_config' # Đổi tên để tổng quát hơn
+        self._settings_doc_id = 'app_config'
 
     def get_settings(self):
         """
@@ -19,7 +22,7 @@ class SettingsManager:
         else:
             # Cấu hình mặc định ban đầu
             return {
-                'session_persistence_days': 0  # 0 ngày = không ghi nhớ đăng nhập
+                'session_persistence_days': 0
             }
 
     def save_settings(self, settings_data):
@@ -27,7 +30,9 @@ class SettingsManager:
         Lưu toàn bộ cài đặt vào Firestore.
         """
         doc_ref = self.collection.document(self._settings_doc_id)
-        doc_ref.set(settings_data, merge=True) # Dùng merge=True để an toàn hơn
+        doc_ref.set(settings_data, merge=True)
+        self.get_settings.clear()
+        self.get_session_config.clear()
 
     def get_session_config(self):
         """
@@ -38,3 +43,7 @@ class SettingsManager:
         return {
             'persistence_days': settings.get('session_persistence_days', 0)
         }
+
+# Apply decorators after the class is defined
+SettingsManager.get_settings = st.cache_data(ttl=3600, hash_funcs={SettingsManager: hash_settings_manager})(SettingsManager.get_settings)
+SettingsManager.get_session_config = st.cache_data(ttl=3600, hash_funcs={SettingsManager: hash_settings_manager})(SettingsManager.get_session_config)

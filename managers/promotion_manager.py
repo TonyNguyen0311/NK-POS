@@ -4,6 +4,9 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud import firestore
 from datetime import datetime, timezone
 
+def hash_promotion_manager(manager):
+    return "PromotionManager"
+
 class PromotionManager:
     """
     Manages all promotion-related logic, including Price Programs, Vouchers, etc.
@@ -39,18 +42,13 @@ class PromotionManager:
         active_programs = list(query.stream())
 
         if active_programs:
-            # Return the first (and only) document's data
             program = active_programs[0].to_dict()
-            program['id'] = active_programs[0].id # Thêm ID để tham chiếu
+            program['id'] = active_programs[0].id
             return program
         
         return None
 
     def check_and_initialize(self):
-        """
-        Checks if the promotions collection has any documents.
-        If not, it creates a sample, inactive Price Program for demonstration.
-        """
         docs = self.collection_ref.limit(1).get()
         if not docs:
             st.warning("⚠️ Database 'promotions' không tìm thấy hoặc trống. Đang khởi tạo dữ liệu mẫu...")
@@ -83,39 +81,33 @@ class PromotionManager:
             }
             self.collection_ref.add(sample_price_program)
             st.success("✅ Khởi tạo dữ liệu mẫu cho 'promotions' thành công!")
+            self.get_all_promotions.clear()
 
     def create_promotion(self, promo_data):
-        """
-        Creates a new promotion document in Firestore.
-        """
         try:
-            # Add created_at timestamp
             promo_data['created_at'] = datetime.now(timezone.utc).isoformat()
             self.collection_ref.add(promo_data)
+            self.get_all_promotions.clear()
+            self.get_active_price_program.clear()
             return True, "Tạo chương trình khuyến mãi thành công."
         except Exception as e:
             st.error(f"Lỗi khi tạo chương trình khuyến mãi: {e}")
             return False, str(e)
 
     def update_promotion_status(self, promo_id, is_active: bool):
-        """
-        Updates the 'is_active' status of a specific promotion.
-        """
         try:
             self.collection_ref.document(promo_id).update({"is_active": is_active})
+            self.get_all_promotions.clear()
+            self.get_active_price_program.clear()
             return True, f"Đã cập nhật trạng thái của chương trình {promo_id}."
         except Exception as e:
             st.error(f"Lỗi khi cập nhật trạng thái: {e}")
             return False, str(e)
 
     def simulate_price_program_impact(self, promo_data, product_manager):
-        """
-        Simulates the impact of a price program on all products.
-        """
         all_products = product_manager.get_all_products_with_cost()
         simulation_results = []
 
-        # Extract promotion rules
         auto_discount_percent = promo_data.get('rules', {}).get('auto_discount', {}).get('value', 0)
         manual_extra_percent = promo_data.get('rules', {}).get('manual_extra_limit', {}).get('value', 0)
         min_margin_floor = promo_data.get('constraints', {}).get('min_margin_floor_percent', 0)
@@ -124,78 +116,48 @@ class PromotionManager:
             original_price = product.get('price_default') or 0
             cost_price = product.get('cost_price') or 0
 
-            if original_price == 0:
-                continue # Skip products without a price
+            if original_price == 0: continue
 
-            # --- Calculations ---
             original_margin_vnd = original_price - cost_price
             original_margin_percent = (original_margin_vnd / original_price * 100) if original_price > 0 else 0
 
-            # After auto discount
             price_after_auto = original_price * (1 - auto_discount_percent / 100)
             auto_margin_vnd = price_after_auto - cost_price
             auto_margin_percent = (auto_margin_vnd / price_after_auto * 100) if price_after_auto > 0 else 0
 
-            # After max manual discount
             total_discount_percent = auto_discount_percent + manual_extra_percent
             price_after_manual_max = original_price * (1 - total_discount_percent / 100)
             manual_max_margin_vnd = price_after_manual_max - cost_price
             manual_max_margin_percent = (manual_max_margin_vnd / price_after_manual_max * 100) if price_after_manual_max > 0 else 0
 
-            # --- Warnings ---
             warnings = []
-            if auto_margin_percent < min_margin_floor:
-                warnings.append(f"Lợi nhuận sau giảm tự động ({auto_margin_percent:.1f}%) thấp hơn ngưỡng ({min_margin_floor}%)")
-            if manual_max_margin_percent < min_margin_floor:
-                warnings.append(f"Lợi nhuận sau giảm tối đa ({manual_max_margin_percent:.1f}%) thấp hơn ngưỡng ({min_margin_floor}%)")
+            if auto_margin_percent < min_margin_floor: warnings.append(f"Lợi nhuận sau giảm tự động ({auto_margin_percent:.1f}%) thấp hơn ngưỡng ({min_margin_floor}%)")
+            if manual_max_margin_percent < min_margin_floor: warnings.append(f"Lợi nhuận sau giảm tối đa ({manual_max_margin_percent:.1f}%) thấp hơn ngưỡng ({min_margin_floor}%)")
             
             simulation_results.append({
-                "sku": product.get('sku'),
-                "name": product.get('name'),
-                "cost_price": cost_price,
-                "original_price": original_price,
-                "original_margin_percent": original_margin_percent,
-                "price_after_auto": price_after_auto,
-                "auto_margin_percent": auto_margin_percent,
-                "price_after_manual_max": price_after_manual_max,
-                "manual_max_margin_percent": manual_max_margin_percent,
+                "sku": product.get('sku'), "name": product.get('name'), "cost_price": cost_price,
+                "original_price": original_price, "original_margin_percent": original_margin_percent,
+                "price_after_auto": price_after_auto, "auto_margin_percent": auto_margin_percent,
+                "price_after_manual_max": price_after_manual_max, "manual_max_margin_percent": manual_max_margin_percent,
                 "warnings": warnings
             })
-
         return simulation_results
 
-    # --------------------------------------------------------------------------
-    # HÀM TIỆN ÍCH CHO POS
-    # --------------------------------------------------------------------------
-
     def is_item_eligible_for_program(self, item: dict, program: dict) -> bool:
-        """
-        Checks if a single cart item is eligible for the given promotion program.
-        """
-        if not program or not item:
-            return False
-
-        scope = program.get('scope', {})
+        if not program or not item: return False
+        scope = program.get('scope', {}) 
         scope_type = scope.get('type')
         scope_ids = scope.get('ids', [])
-
-        if scope_type == 'ALL':
-            return True
-        elif scope_type == 'PRODUCT' and item.get('sku') in scope_ids:
-            return True
-        elif scope_type == 'CATEGORY' and item.get('category_id') in scope_ids:
-            return True
-        
+        if scope_type == 'ALL': return True
+        elif scope_type == 'PRODUCT' and item.get('sku') in scope_ids: return True
+        elif scope_type == 'CATEGORY' and item.get('category_id') in scope_ids: return True
         return False
 
     def is_manual_discount_allowed(self, program: dict) -> bool:
-        """
-
-        Checks if the program allows for any manual discount.
-        """
-        if not program:
-            return False
-        
+        if not program: return False
         limit_value = program.get('rules', {}).get('manual_extra_limit', {}).get('value', 0)
-        
         return limit_value > 0
+
+# Apply decorators after the class is defined
+PromotionManager.get_all_promotions = st.cache_data(ttl=300, hash_funcs={PromotionManager: hash_promotion_manager})(PromotionManager.get_all_promotions)
+PromotionManager.get_active_price_program = st.cache_data(ttl=60, hash_funcs={PromotionManager: hash_promotion_manager})(PromotionManager.get_active_price_program)

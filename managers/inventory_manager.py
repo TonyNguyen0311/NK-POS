@@ -5,6 +5,9 @@ import streamlit as st
 from google.cloud import firestore
 from datetime import datetime
 
+def hash_inventory_manager(manager):
+    return "InventoryManager"
+
 class InventoryManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
@@ -14,6 +17,10 @@ class InventoryManager:
 
     def _get_doc_id(self, sku: str, branch_id: str):
         return f"{sku.upper()}_{branch_id}"
+
+    def _clear_inventory_caches(self, branch_id: str):
+        self.get_inventory_by_branch.clear()
+        self.get_stock_quantity.clear() # Clear for all skus as args are not available
 
     def update_inventory(self, sku: str, branch_id: str, delta: int, transaction: firestore.Transaction):
         inv_doc_ref = self.inventory_col.document(self._get_doc_id(sku, branch_id))
@@ -46,7 +53,8 @@ class InventoryManager:
             })
         
         _adjust_stock_transaction(transaction, sku, branch_id, new_quantity, user_id, reason, notes)
-
+        self._clear_inventory_caches(branch_id)
+        self.get_inventory_adjustments_history.clear()
 
     def get_stock_quantity(self, sku: str, branch_id: str) -> int:
         try:
@@ -90,6 +98,7 @@ class InventoryManager:
             "status": "PENDING", "history": [{"status": "PENDING", "updated_at": datetime.now().isoformat(), "user_id": user_id}],
             "notes": notes
         })
+        self.get_transfers.clear()
         return transfer_id
 
     def _update_transfer_status(self, transaction, transfer_ref, new_status, user_id, update_data={}):
@@ -117,8 +126,13 @@ class InventoryManager:
         self._update_transfer_status(transaction, transfer_ref, "SHIPPED", user_id, {"shipped_at": datetime.now().isoformat(), "shipped_by": user_id})
 
     def ship_transfer(self, transfer_id, user_id):
+        transfer_ref = self.transfers_col.document(transfer_id)
+        from_branch_id = transfer_ref.get().to_dict().get('from_branch_id')
         transaction = self.db.transaction()
         self._ship_transfer_transaction(transaction, transfer_id, user_id)
+        if from_branch_id:
+            self._clear_inventory_caches(from_branch_id)
+        self.get_transfers.clear()
 
     @firestore.transactional
     def _receive_transfer_transaction(self, transaction, transfer_id, user_id):
@@ -132,8 +146,13 @@ class InventoryManager:
         self._update_transfer_status(transaction, transfer_ref, "COMPLETED", user_id, {"completed_at": datetime.now().isoformat(), "completed_by": user_id})
         
     def receive_transfer(self, transfer_id, user_id):
+        transfer_ref = self.transfers_col.document(transfer_id)
+        to_branch_id = transfer_ref.get().to_dict().get('to_branch_id')
         transaction = self.db.transaction()
         self._receive_transfer_transaction(transaction, transfer_id, user_id)
+        if to_branch_id:
+            self._clear_inventory_caches(to_branch_id)
+        self.get_transfers.clear()
 
     def get_transfers(self, branch_id: str = None, direction: str = 'all', status: str = None, limit=100):
         if not branch_id:
@@ -170,3 +189,9 @@ class InventoryManager:
         
         results.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return results[:limit]
+
+# Apply decorators after the class is defined
+InventoryManager.get_stock_quantity = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_stock_quantity)
+InventoryManager.get_inventory_by_branch = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_by_branch)
+InventoryManager.get_inventory_adjustments_history = st.cache_data(ttl=120, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_adjustments_history)
+InventoryManager.get_transfers = st.cache_data(ttl=30, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_transfers)

@@ -18,6 +18,9 @@ ALLOWED_TO_CREATE = {
     'staff': []
 }
 
+def hash_auth_manager(manager):
+    return "AuthManager"
+
 class AuthManager:
     def __init__(self, firebase_client, settings_mgr):
         self.db = firebase_client.db
@@ -260,6 +263,10 @@ class AuthManager:
         
         data.pop('password_hash', None)
         self.users_col.document(uid).set(data)
+        
+        self.list_users.clear()
+        self.has_users.clear()
+        
         return data
 
     def update_user_record(self, uid: str, data: dict, new_password: str = None):
@@ -297,10 +304,13 @@ class AuthManager:
         
         data['updated_at'] = datetime.now(timezone.utc).isoformat()
         self.users_col.document(uid).update(data)
+        
+        self.list_users.clear()
+        
         return True
 
     def delete_user_record(self, uid: str):
-        """Deletes a user record from Auth and Firestore."""
+        "Deletes a user record from Auth and Firestore."
         actor = self.get_current_user_info()
         if not actor:
             raise PermissionError("Authentication required to perform this action.")
@@ -332,6 +342,9 @@ class AuthManager:
             print(f"Warning: Could not delete user {uid} from Auth, but proceeding with DB deletion. Error: {e}")
 
         self.users_col.document(uid).delete()
+
+        self.list_users.clear()
+        self.has_users.clear()
 
         sessions_query = self.sessions_col.where("user_id", "==", uid).stream()
         for doc in sessions_query:
@@ -369,3 +382,7 @@ class AuthManager:
                 if branch_id in all_branches_map
             }
             return allowed_map
+
+# Apply decorators after the class is defined
+AuthManager.has_users = st.cache_data(ttl=60, hash_funcs={AuthManager: hash_auth_manager})(AuthManager.has_users)
+AuthManager.list_users = st.cache_data(ttl=60, hash_funcs={AuthManager: hash_auth_manager})(AuthManager.list_users)
