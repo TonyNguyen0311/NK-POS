@@ -36,6 +36,9 @@ from ui.cost_allocation_page import render_cost_allocation_page
 from ui.pnl_report_page import render_pnl_report_page
 from ui.categories_page import render_categories_page # Import the new categories page
 
+# --- UI Utils ---
+from ui._utils import load_css
+
 st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
 # --- MENU PERMISSIONS & STRUCTURE (Updated)---
@@ -86,14 +89,6 @@ MENU_STRUCTURE = {
         "Quản trị Hệ thống"
     ]
 }
-
-@st.cache_resource
-def load_css(file_name):
-    try:
-        with open(file_name) as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-    except FileNotFoundError:
-        st.error(f"Tệp CSS '{file_name}' không tìm thấy. Bỏ qua việc tải CSS.")
 
 def get_corrected_creds(secrets_key):
     creds_section = st.secrets[secrets_key]

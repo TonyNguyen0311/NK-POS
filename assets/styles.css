@@ -1,60 +1,77 @@
-
-/* Global variables for colors, fonts, etc. */
-:root {
-    --primary-color: #1c8adb; /* A modern, friendly blue */
-    --secondary-color: #f0f2f6; /* Light gray for backgrounds */
-    --text-color: #31333F;
-    --success-color: #28a745;
-    --error-color: #dc3545;
-    --header-font: 'Segoe UI', 'Roboto', sans-serif;
-    --body-font: 'Segoe UI', 'Roboto', sans-serif;
-}
-
-/* Apply base font to the whole app */
+/* General Body Styles */
 body {
-    font-family: var(--body-font);
-    color: var(--text-color);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #333;
 }
 
-/* Style Streamlit's main block container */
-.stApp > header {
-    background-color: transparent;
+/* Page Title */
+.page-title {
+    font-size: 2.5em;
+    font-weight: bold;
+    color: #1E88E5; /* A nice blue color */
+    padding-bottom: 10px;
+    border-bottom: 2px solid #EEEEEE;
+    margin-bottom: 20px;
 }
 
-.main .block-container {
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-    padding-left: 5rem;
-    padding-right: 5rem;
-}
-
-/* Style buttons for consistency */
-.stButton>button {
-    border-radius: 0.5rem;
-    color: white;
-    background-color: var(--primary-color);
-    border: 2px solid var(--primary-color);
-    transition: all 0.2s ease-in-out;
-}
-
-.stButton>button:hover {
-    background-color: white;
-    color: var(--primary-color);
-    border: 2px solid var(--primary-color);
-}
-
-/* Style headers */
-h1, h2, h3 {
-    font-family: var(--header-font);
+/* Section Header */
+.section-header {
+    font-size: 1.8em;
     font-weight: 600;
+    color: #424242;
+    margin-top: 25px;
+    margin-bottom: 15px;
 }
 
-/* Custom classes for cards/containers */
-.card {
-    background-color: white;
-    border-radius: 0.5rem;
-    padding: 1rem;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    margin-bottom: 1rem;
+/* Sub-header */
+.sub-header {
+    font-size: 1.4em;
+    font-weight: 500;
+    color: #616161;
+    margin-top: 15px;
+    margin-bottom: 10px;
 }
 
+/* Custom button styles to make them more prominent */
+div[data-testid="stButton"] > button {
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-weight: bold;
+    border: 2px solid #1E88E5;
+    background-color: #FFFFFF;
+    color: #1E88E5;
+    transition: all 0.3s ease-in-out;
+}
+
+div[data-testid="stButton"] > button:hover {
+    background-color: #1E88E5;
+    color: #FFFFFF;
+    transform: scale(1.02);
+}
+
+div[data-testid="stButton"] > button:focus {
+    box-shadow: 0 0 0 3px #90CAF9;
+    outline: none;
+}
+
+/* Style for info boxes to make them stand out */
+div[data-testid="stAlert"] {
+    border-radius: 8px;
+    border-left: 5px solid;
+}
+
+div[data-testid="stAlert"][data-baseweb="notification-positive"] {
+    border-left-color: #4CAF50; /* Green for success */
+}
+
+div[data-testid="stAlert"][data-baseweb="notification-info"] {
+    border-left-color: #2196F3; /* Blue for info */
+}
+
+div[data-testid="stAlert"][data-baseweb="notification-warning"] {
+    border-left-color: #FFC107; /* Yellow for warning */
+}
+
+div[data-testid="stAlert"][data-baseweb="notification-negative"] {
+    border-left-color: #F44336; /* Red for error */
+}
