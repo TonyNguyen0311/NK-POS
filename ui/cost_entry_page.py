@@ -28,8 +28,10 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     allowed_branches_map = auth_mgr.get_allowed_branches_map()
     default_branch_id = user.get('default_branch_id')
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches()}
-    cost_groups_raw = cost_mgr.get_cost_groups()
-    group_map = {g['id']: g['group_name'] for g in cost_groups_raw}
+    
+    # FIX: Use the new generic method to get cost groups and update the key for the name
+    cost_groups_raw = cost_mgr.get_all_category_items("CostGroups")
+    group_map = {g['id']: g['category_name'] for g in cost_groups_raw}
 
     # Handle dialog for viewing receipt
     if 'viewing_receipt_url' in st.session_state and st.session_state.viewing_receipt_url:
@@ -38,13 +40,12 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     tab1, tab2 = st.tabs(["Ghi nhận Chi phí mới", "Lịch sử & Quản lý Chi phí"])
 
     with tab1:
-        # ... (Form for new cost entry remains the same) ...
         with st.form("new_cost_entry_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 selected_branch_id = render_branch_selector(allowed_branches_map, default_branch_id)
                 if not selected_branch_id:
-                    return
+                    st.stop()
 
                 amount = st.number_input("Số tiền (VNĐ)", min_value=0, step=1000)
                 entry_date = st.date_input("Ngày chi", datetime.now())
@@ -90,7 +91,6 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                             st.error(f"Lỗi: {e}")
 
     with tab2:
-        # ... (Filters remain the same) ...
         with st.expander("Bộ lọc", expanded=True):
             f_c1, f_c2, f_c3 = st.columns(3)
             today = datetime.now()
@@ -116,7 +116,11 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
         if 'all' not in selected_branches:
             filters['branch_ids'] = selected_branches
         else:
-            filters['branch_ids'] = list(allowed_branches_map.keys())
+            # If user can see all branches, filter by all available branches
+            if user_role == 'admin':
+                filters['branch_ids'] = list(all_branches_map.keys())
+            else:
+                filters['branch_ids'] = list(allowed_branches_map.keys())
 
         try:
             with st.spinner("Đang tải dữ liệu..."):
@@ -149,7 +153,6 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                                 st.session_state.viewing_receipt_url = row['receipt_url']
                                 st.rerun()
                     
-                    # ... (Action buttons remain the same) ...
                     can_cancel = (user_role in ['admin', 'manager']) or (user_role == 'staff' and row['created_by'] == user['uid'])
                     can_delete = user_role == 'admin'
                     
