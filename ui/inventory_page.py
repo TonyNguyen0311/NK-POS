@@ -9,11 +9,11 @@ from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
 
 # Import formatters and UI utils
-from ui._utils import render_page_header, render_branch_selector
+from ui._utils import render_page_title, render_branch_selector
 from utils.formatters import format_number, format_currency
 
 def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
-    render_page_header("Quản lý Tồn kho", "📦")
+    render_page_title("Quản lý Tồn kho")
 
     # --- 1. GET USER INFO & PERMISSIONS ---
     user_info = auth_mgr.get_current_user_info()
