@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime
 import streamlit as st
+from streamlit.legacy_caching import clear_cache
 
 class BranchManager:
     def __init__(self, firebase_client):
@@ -19,11 +20,10 @@ class BranchManager:
         
         self.collection.document(branch_id).set(new_data)
         # Xóa cache sau khi tạo mới
-        self.list_branches.clear()
+        clear_cache()
         return new_data
 
-    # SỬA LỖI: Thụt lề đúng
-    @st.cache_data(ttl=3600, _self_unhashable=True)
+    @st.cache(allow_output_mutation=True, ttl=3600)
     def list_branches(self, active_only: bool = True):
         """Lấy danh sách chi nhánh, có thể chỉ lấy các chi nhánh đang hoạt động."""
         query = self.collection
@@ -33,8 +33,7 @@ class BranchManager:
         docs = query.stream()
         return [doc.to_dict() for doc in docs]
 
-    # SỬA LỖI: Thụt lề đúng
-    @st.cache_data(ttl=3600, _self_unhashable=True)
+    @st.cache(allow_output_mutation=True, ttl=3600)
     def get_branch(self, branch_id):
         """Lấy thông tin chi tiết của một chi nhánh."""
         if not branch_id:
@@ -49,6 +48,5 @@ class BranchManager:
         updates['updated_at'] = datetime.now().isoformat()
         self.collection.document(branch_id).update(updates)
         # Xóa cache sau khi cập nhật
-        self.list_branches.clear()
-        self.get_branch.clear()
+        clear_cache()
         return self.get_branch(branch_id) # Trả về dữ liệu đã cập nhật
