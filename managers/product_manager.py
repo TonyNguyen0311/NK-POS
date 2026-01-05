@@ -174,13 +174,11 @@ class ProductManager:
 
     def get_all_products(self, active_only: bool = True):
         try:
-            # Sửa lỗi: Chỉ sắp xếp, không lọc bằng where() phức tạp
             base_query = self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
             docs = base_query.stream()
 
             all_products = [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
-            # Lọc trong Python nếu cần
             if active_only:
                 return [p for p in all_products if p.get('active', False)]
             else:
@@ -188,7 +186,6 @@ class ProductManager:
 
         except Exception as e:
             logging.error(f"Error getting all products: {e}")
-            # Hiển thị thông báo lỗi thân thiện hơn cho người dùng
             if "requires an index" in str(e):
                 st.error("Lỗi truy vấn cơ sở dữ liệu. Vui lòng liên hệ quản trị viên.")
             else:
