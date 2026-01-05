@@ -3,18 +3,15 @@ import uuid
 from datetime import datetime
 import streamlit as st
 
+# Define a hash function for the BranchManager class
+def hash_branch_manager(manager):
+    # Since the manager is essentially a singleton, we can use a constant identifier.
+    return "BranchManager"
+
 class BranchManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection = self.db.collection('branches')
-        # Add a unique identifier for hashing
-        self._instance_id = uuid.uuid4()
-
-    def __hash__(self):
-        return hash(self._instance_id)
-
-    def __eq__(self, other):
-        return isinstance(other, BranchManager) and self._instance_id == other._instance_id
 
     def create_branch(self, data: dict):
         """Tạo chi nhánh mới từ một dictionary"""
@@ -30,7 +27,7 @@ class BranchManager:
         self.list_branches.clear()
         return new_data
 
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=3600, hash_funcs={BranchManager: hash_branch_manager})
     def list_branches(self, active_only: bool = True):
         """Lấy danh sách chi nhánh, có thể chỉ lấy các chi nhánh đang hoạt động."""
         query = self.collection
@@ -40,7 +37,7 @@ class BranchManager:
         docs = query.stream()
         return [doc.to_dict() for doc in docs]
 
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=3600, hash_funcs={BranchManager: hash_branch_manager})
     def get_branch(self, branch_id):
         """Lấy thông tin chi tiết của một chi nhánh."""
         if not branch_id:

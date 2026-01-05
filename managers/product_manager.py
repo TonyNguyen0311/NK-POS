@@ -8,6 +8,10 @@ from google.cloud.firestore_v1.base_query import And, FieldFilter
 from managers.image_handler import ImageHandler
 from managers.price_manager import PriceManager
 
+# Define a hash function for the ProductManager class
+def hash_product_manager(manager):
+    return "ProductManager"
+
 class ProductManager:
     def __init__(self, firebase_client, price_mgr: PriceManager = None):
         self.db = firebase_client.db
@@ -15,14 +19,7 @@ class ProductManager:
         self.products_collection = self.db.collection('products')
         self.image_handler = self._initialize_image_handler()
         self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
-        self._instance_id = uuid.uuid4()
     
-    def __hash__(self):
-        return hash(self._instance_id)
-
-    def __eq__(self, other):
-        return isinstance(other, ProductManager) and self._instance_id == other._instance_id
-
     def _initialize_image_handler(self):
         if "drive_oauth" in st.secrets:
             try:
@@ -33,7 +30,7 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
         return None
 
-    @st.cache_data(ttl=300)
+    @st.cache_data(ttl=300, hash_funcs={ProductManager: hash_product_manager})
     def get_all_category_items(self, collection_name: str):
         try:
             docs = self.db.collection(collection_name).order_by("created_at").stream()
@@ -194,7 +191,7 @@ class ProductManager:
             logging.error(f"Error deleting product {product_id}: {e}")
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
-    @st.cache_data(ttl=600)
+    @st.cache_data(ttl=600, hash_funcs={ProductManager: hash_product_manager})
     def get_all_products(self, active_only: bool = True):
         try:
             base_query = self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -215,7 +212,7 @@ class ProductManager:
                 st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
-    @st.cache_data(ttl=600)
+    @st.cache_data(ttl=600, hash_funcs={ProductManager: hash_product_manager})
     def get_product_by_id(self, product_id):
         if not product_id: return None
         try:
