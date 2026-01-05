@@ -91,7 +91,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
     
     st.divider()
     st.subheader("Toàn bộ sản phẩm trong danh mục")
-    products = prod_mgr.get_all_products(show_inactive=True)
+    products = prod_mgr.get_all_products(active_only=False) # FIX: Changed show_inactive=True to active_only=False
 
     if not products:
         st.info("Chưa có sản phẩm nào.")
