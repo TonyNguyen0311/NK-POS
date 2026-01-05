@@ -43,7 +43,7 @@ class InventoryManager:
 
     def adjust_stock(self, sku, branch_id, new_quantity, user_id, reason, notes):
         transaction = self.db.transaction()
-        self._adjust_stock_transaction(transaction, sku, branch_id, new_quantity, user_id, reason, notes)
+        self._adjust_stock_transaction(transaction, sku, branch_id, new_quantity, user_id, reason, notes=notes)
 
     def get_stock_quantity(self, sku: str, branch_id: str) -> int:
         try:
