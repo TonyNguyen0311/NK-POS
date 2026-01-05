@@ -6,10 +6,12 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud.firestore_v1.base_query import And, FieldFilter
 from managers.image_handler import ImageHandler
+from managers.price_manager import PriceManager
 
 class ProductManager:
-    def __init__(self, firebase_client):
+    def __init__(self, firebase_client, price_mgr: PriceManager = None):
         self.db = firebase_client.db
+        self.price_mgr = price_mgr
         self.products_collection = self.db.collection('products')
         self.image_handler = self._initialize_image_handler()
         self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
@@ -207,9 +209,35 @@ class ProductManager:
         return self.get_product_by_id(sku)
 
     def get_listed_products_for_branch(self, branch_id: str):
+        if not self.price_mgr:
+            st.error("Lỗi: Price Manager không được khởi tạo trong Product Manager.")
+            return []
         try:
-            all_active_products = self.get_all_products()
-            return all_active_products 
+            # 1. Get all active products from the general catalog
+            all_active_products = self.get_all_products(active_only=True)
+            
+            # 2. Get all price/business records for the specific branch
+            prices_in_branch = self.price_mgr.get_all_prices_for_branch(branch_id)
+            
+            # 3. Create a dictionary for quick lookup
+            branch_price_map = {p['sku']: p for p in prices_in_branch}
+
+            # 4. Filter products that are actively sold in the branch and attach price info
+            listed_products = []
+            for prod in all_active_products:
+                sku = prod['sku']
+                if sku in branch_price_map:
+                    price_info = branch_price_map[sku]
+                    # Check if the product is marked as 'is_active' for business in this branch
+                    if price_info.get('is_active', False):
+                        # Attach the current price to the product dictionary
+                        prod_with_price = {
+                            **prod,
+                            'price': price_info.get('price', 0) 
+                        }
+                        listed_products.append(prod_with_price)
+            
+            return listed_products
         except Exception as e:
             logging.error(f"Error in get_listed_products_for_branch: {e}")
             return []
