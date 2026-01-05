@@ -22,7 +22,9 @@ class POSManager:
 
     def add_item_to_cart(self, branch_id: str, product_data: dict, stock_quantity: int):
         sku = product_data['sku']
-        current_price = self.price_mgr.get_current_price_for_sku(branch_id, sku)
+        # SỬA LỖI: Lấy giá bán trực tiếp từ dữ liệu sản phẩm đã được tải trước đó.
+        # Dữ liệu này đã được làm giàu với giá bán của chi nhánh bởi ProductManager.
+        current_price = product_data.get('selling_price', 0)
 
         if current_price <= 0:
             st.error(f"Sản phẩm '{product_data['name']}' ({sku}) chưa được thiết lập giá bán tại chi nhánh này. Vui lòng kiểm tra lại.")
@@ -31,6 +33,8 @@ class POSManager:
         if sku in st.session_state.pos_cart:
             self.update_item_quantity(sku, st.session_state.pos_cart[sku]['quantity'] + 1)
         else:
+            # Lấy thông tin ảnh từ product_data thay vì image_url
+            image_id = product_data.get('image_id')
             st.session_state.pos_cart[sku] = {
                 "sku": sku,
                 "name": product_data['name'],
@@ -39,7 +43,7 @@ class POSManager:
                 "cost_price": product_data.get('cost_price', 0),
                 "quantity": 1,
                 "stock": stock_quantity,
-                "image_url": product_data.get('image_url')
+                "image_id": image_id # Lưu image_id để có thể tạo URL xem sau
             }
 
     def update_item_quantity(self, sku: str, new_quantity: int):
@@ -67,10 +71,10 @@ class POSManager:
         subtotal = 0
         total_auto_discount = 0
         manual_discount_exceeded = False
-        total_items = 0 # <--- SỬA LỖI: Khởi tạo biến đếm
+        total_items = 0 
 
         for sku, item in cart_items.items():
-            total_items += item['quantity'] # <--- SỬA LỖI: Đếm tổng số lượng sản phẩm
+            total_items += item['quantity'] 
             original_line_total = item['original_price'] * item['quantity']
             subtotal += original_line_total
             
@@ -105,7 +109,7 @@ class POSManager:
 
         return {
             "items": calculated_items,
-            "total_items": total_items, # <--- SỬA LỖI: Trả về tổng số sản phẩm
+            "total_items": total_items, 
             "active_promotion": active_promo,
             "subtotal": subtotal,
             "total_auto_discount": total_auto_discount,
@@ -161,7 +165,8 @@ class POSManager:
                 "line_cogs": line_cogs,
                 "auto_discount_applied": item['auto_discount_applied'],
                 "manual_discount_applied": proportional_manual_discount,
-                "final_price": final_price_per_unit
+                "final_price": final_price_per_unit,
+                "image_id": item.get('image_id') # Thêm image_id vào dữ liệu lưu trữ
             })
 
         final_order_data = {
