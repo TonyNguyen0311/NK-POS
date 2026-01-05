@@ -9,12 +9,12 @@ from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
 
 # Import UI utils and formatters
-from ui._utils import render_page_header
+from ui._utils import render_page_title # Corrected import
 from utils.formatters import format_currency, format_number
 
 def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
     # 1. RENDER PAGE HEADER
-    render_page_header("Báo cáo & Phân tích", "📊")
+    render_page_title("Báo cáo & Phân tích") # Corrected function call
 
     # 2. USER PERMISSIONS & DATA ACCESS
     user_info = auth_mgr.get_current_user_info()
