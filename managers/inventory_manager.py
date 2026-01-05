@@ -1,7 +1,7 @@
 
 import uuid
 import logging
-from firebase_admin import firestore
+from google.cloud import firestore
 from datetime import datetime
 
 class InventoryManager:
@@ -17,7 +17,7 @@ class InventoryManager:
     def update_inventory(self, sku: str, branch_id: str, delta: int, transaction: firestore.Transaction):
         inv_doc_ref = self.inventory_col.document(self._get_doc_id(sku, branch_id))
         transaction.set(inv_doc_ref, {
-            'stock_quantity': firestore.FieldValue.increment(delta),
+            'stock_quantity': firestore.Increment(delta),
             'last_updated': datetime.now().isoformat(),
             'sku': sku, 
             'branch_id': branch_id
@@ -66,10 +66,6 @@ class InventoryManager:
             return {}
     
     def get_inventory_adjustments_history(self, branch_id: str, limit: int = 200):
-        """
-        Lấy lịch sử điều chỉnh kho cho một chi nhánh cụ thể.
-        Sắp xếp được thực hiện ở phía server-side (Python) để tránh lỗi index của Firestore.
-        """
         try:
             if not branch_id:
                 return []
@@ -96,7 +92,7 @@ class InventoryManager:
         return transfer_id
 
     def _update_transfer_status(self, transaction, transfer_ref, new_status, user_id, update_data={}):
-        payload = {"status": new_status, "history": firestore.FieldValue.array_union([{"status": new_status, "updated_at": datetime.now().isoformat(), "user_id": user_id}])}
+        payload = {"status": new_status, "history": firestore.ArrayUnion([{"status": new_status, "updated_at": datetime.now().isoformat(), "user_id": user_id}])}
         payload.update(update_data)
         transaction.update(transfer_ref, payload)
 
@@ -108,12 +104,20 @@ class InventoryManager:
 
         from_branch = transfer_doc['from_branch_id']
         for item in transfer_doc['items']:
-            if self.get_stock_quantity(item['sku'], from_branch) < item['quantity']: raise Exception(f"Tồn kho {item['sku']} không đủ.")
+            inv_ref = self.inventory_col.document(self._get_doc_id(item['sku'], from_branch))
+            inv_snapshot = inv_ref.get(transaction=transaction)
+            current_quantity = inv_snapshot.to_dict().get('stock_quantity', 0) if inv_snapshot.exists else 0
+            
+            if current_quantity < item['quantity']: 
+                raise Exception(f"Tồn kho {item['sku']} không đủ tại chi nhánh nguồn.")
+            
             self.update_inventory(item['sku'], from_branch, -item['quantity'], transaction)
+        
         self._update_transfer_status(transaction, transfer_ref, "SHIPPED", user_id, {"shipped_at": datetime.now().isoformat(), "shipped_by": user_id})
 
     def ship_transfer(self, transfer_id, user_id):
-        self._ship_transfer_transaction(self.db.transaction(), transfer_id, user_id)
+        transaction = self.db.transaction()
+        self._ship_transfer_transaction(transaction, transfer_id, user_id)
 
     @firestore.transactional
     def _receive_transfer_transaction(self, transaction, transfer_id, user_id):
@@ -127,32 +131,29 @@ class InventoryManager:
         self._update_transfer_status(transaction, transfer_ref, "COMPLETED", user_id, {"completed_at": datetime.now().isoformat(), "completed_by": user_id})
         
     def receive_transfer(self, transfer_id, user_id):
-        self._receive_transfer_transaction(self.db.transaction(), transfer_id, user_id)
+        transaction = self.db.transaction()
+        self._receive_transfer_transaction(transaction, transfer_id, user_id)
 
     def get_transfers(self, branch_id: str = None, direction: str = 'all', status: str = None, limit=100):
         if not branch_id:
             query = self.transfers_col
             if status:
                 query = query.where('status', '==', status)
-            # Sắp xếp ở client-side nếu không có index
             results = [doc.to_dict() for doc in query.limit(limit).stream()]
             results.sort(key=lambda x: x.get('created_at', ''), reverse=True)
             return results
 
         results = []
         transfer_ids = set()
-
         queries_to_run = []
         if direction in ['outgoing', 'all']:
             q_out = self.transfers_col.where('from_branch_id', '==', branch_id)
-            if status:
-                q_out = q_out.where('status', '==', status)
+            if status: q_out = q_out.where('status', '==', status)
             queries_to_run.append(q_out)
         
         if direction in ['incoming', 'all']:
             q_in = self.transfers_col.where('to_branch_id', '==', branch_id)
-            if status:
-                q_in = q_in.where('status', '==', status)
+            if status: q_in = q_in.where('status', '==', status)
             queries_to_run.append(q_in)
 
         for query in queries_to_run:
@@ -164,10 +165,7 @@ class InventoryManager:
                         transfer_ids.add(doc.id)
             except Exception as e:
                 logging.error(f"Firestore query failed: {e}. This might be due to a missing index.")
-                # Optionally, re-raise or handle more gracefully
                 raise e
-
-        # Sắp xếp kết quả cuối cùng bằng Python
-        results.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         
+        results.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return results[:limit]

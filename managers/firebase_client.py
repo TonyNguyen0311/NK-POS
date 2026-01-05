@@ -1,6 +1,8 @@
 
 import firebase_admin
-from firebase_admin import credentials, firestore, storage
+from firebase_admin import credentials, storage
+from google.cloud import firestore as google_cloud_firestore
+from google.oauth2 import service_account
 import pyrebase
 import streamlit as st
 
@@ -9,6 +11,10 @@ class FirebaseClient:
         """
         Initializes Firebase from a credentials dictionary.
         """
+        project_id = credentials_info.get("project_id")
+        if not project_id:
+            raise ValueError("project_id not found in credentials.")
+
         if not firebase_admin._apps:
             try:
                 # Use credentials.Certificate with the dictionary directly
@@ -20,7 +26,10 @@ class FirebaseClient:
                 # Re-raise the exception to be caught by the caller with more context
                 raise e
 
-        self.db = firestore.client()
+        # Initialize google-cloud-firestore client for database operations
+        gcloud_credentials = service_account.Credentials.from_service_account_info(credentials_info)
+        self.db = google_cloud_firestore.Client(project=project_id, credentials=gcloud_credentials)
+
         self.bucket = storage.bucket()
         
         # Initialize Pyrebase for Authentication

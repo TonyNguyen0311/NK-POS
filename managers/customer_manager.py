@@ -1,7 +1,7 @@
 
 import uuid
 from datetime import datetime
-from firebase_admin import firestore
+from google.cloud import firestore
 
 class CustomerManager:
     def __init__(self, firebase_client):
@@ -24,9 +24,6 @@ class CustomerManager:
 
     def list_customers(self, query: str | None = None):
         """Lấy danh sách khách hàng. Có thể tìm kiếm theo tên hoặc sđt."""
-        # Note: Firestore không hỗ trợ full-text search hiệu quả.
-        # Cách tiếp cận đơn giản là lấy tất cả và lọc bằng Python.
-        # Với lượng khách hàng lớn, cần giải pháp search mạnh hơn (VD: Algolia, Elasticsearch)
         docs = self.collection.stream()
         results = []
         for doc in docs:
@@ -56,9 +53,8 @@ class CustomerManager:
 
         customer_ref = self.collection.document(customer_id)
         
-        # Dùng FieldValue.increment để đảm bảo an toàn
         transaction.update(customer_ref, {
-            'total_spent': firestore.FieldValue.increment(amount_spent_delta),
-            'points': firestore.FieldValue.increment(points_delta),
+            'total_spent': firestore.Increment(amount_spent_delta),
+            'points': firestore.Increment(points_delta),
             'last_purchase_date': datetime.now().isoformat()
         })
