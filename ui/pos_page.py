@@ -25,10 +25,12 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
         search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input")
         st.session_state.pos_search = search_query
 
-        all_categories = product_mgr.get_categories()
-        cat_options = {cat['id']: cat['name'] for cat in all_categories}
+        # Updated to use the new generic category method
+        all_categories = product_mgr.get_all_category_items("ProductCategories")
+        # The field name for the category name is now 'category_name'
+        cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
         cat_options["ALL"] = "Tất cả danh mục"
-        selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options[x], key='pos_category')
+        selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category')
         st.divider()
 
         # 2. Product Listing
@@ -53,8 +55,7 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
                 
                 if stock_quantity > 0:
                     with col.container(border=True, height=360):
-                        # --- REFACTORED IMAGE LOGIC ---
-                        image_url = product_mgr.image_handler.get_public_view_url(p.get('image_id'))
+                        image_url = product_mgr.image_handler.get_public_view_url(p.get('image_id')) if product_mgr.image_handler else "assets/no-image.png"
                         st.image(image_url, use_column_width=True)
                         
                         st.markdown(f"**{p['name']}**")
@@ -86,8 +87,7 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
         with st.container(border=True):
             col_img, col_details = st.columns([1, 4])
             with col_img:
-                # --- REFACTORED IMAGE LOGIC ---
-                image_url = product_mgr.image_handler.get_public_view_url(item.get('image_id'))
+                image_url = product_mgr.image_handler.get_public_view_url(item.get('image_id')) if product_mgr.image_handler else "assets/no-image.png"
                 st.image(image_url, width=60)
 
             with col_details:
@@ -112,14 +112,13 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
                         else:
                             st.toast("Vượt quá tồn kho!", icon="⚠️")
 
-# ... (The rest of the file is unchanged) ...
 def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
     """Displays the customer selection, summary, and checkout button."""
     with st.container(border=True):
         customers = customer_mgr.list_customers()
         customer_options = {c['id']: f"{c['name']} ({c['phone']})" for c in customers}
         customer_options["-"] = "Khách vãng lai"
-        st.selectbox("👤 **Khách hàng**", options=list(customer_options.keys()), format_func=lambda x: customer_options[x], key='pos_customer')
+        st.selectbox("👤 **Khách hàng**", options=list(customer_options.keys()), format_func=lambda x: customer_options.get(x, "N/A"), key='pos_customer')
         st.divider()
 
         st.markdown(f"Tổng tiền hàng: <span style='float: right;'>{cart_state['subtotal']:,.0f}đ</span>", unsafe_allow_html=True)
@@ -194,7 +193,6 @@ def render_pos_page(pos_mgr):
 
     initialize_pos_state(selected_branch_id)
 
-    # This part needs to be defined before being used in the tab title
     branch_products = product_mgr.get_listed_products_for_branch(selected_branch_id)
 
     cart_state = pos_mgr.calculate_cart_state(
@@ -208,7 +206,6 @@ def render_pos_page(pos_mgr):
     with main_col:
         tab_gallery, tab_cart = st.tabs([f"Thư viện Sản phẩm ({len(branch_products)})", f"Đơn hàng ({cart_state['total_items']})"])
         with tab_gallery:
-            # We pass the already fetched branch_products to avoid a second call
             render_product_gallery(pos_mgr, product_mgr, inventory_mgr, selected_branch_id)
         with tab_cart:
             render_cart_view(cart_state, pos_mgr, product_mgr)
