@@ -3,15 +3,16 @@ import streamlit as st
 from managers.auth_manager import AuthManager
 from managers.branch_manager import BranchManager
 import time
+from ui._utils import render_page_title # Import the new utility
 
 def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
-    st.set_page_config(layout="centered")
+    # Centralized layout for the login page
+    col1, col2, col3 = st.columns([1, 1.5, 1])
 
-    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         # Check if any user exists. If not, show the initial setup form.
         if not auth_mgr.has_users():
-            st.title("🚀 Khởi tạo hệ thống")
+            render_page_title("🚀 Khởi tạo hệ thống")
             st.info("Chào mừng bạn đến với NK-POS. Vì đây là lần chạy đầu tiên, chúng ta cần thiết lập một vài thông tin cơ bản.")
 
             with st.form("initial_setup_form"):
@@ -25,7 +26,7 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                 admin_password = st.text_input("Password (ít nhất 6 ký tự)", type="password")
                 admin_display_name = st.text_input("Tên hiển thị", "Quản trị viên")
 
-                submitted = st.form_submit_button("Hoàn tất Thiết lập")
+                submitted = st.form_submit_button("Hoàn tất Thiết lập", use_container_width=True, type="primary")
 
                 if submitted:
                     if len(admin_password) < 6:
@@ -35,7 +36,7 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                     else:
                         try:
                             # 1. Create the main branch
-                            branch_id = branch_mgr.create_branch(branch_name, branch_address, branch_phone)
+                            branch_mgr.create_branch(branch_name, branch_address, branch_phone)
 
                             # 2. Create the admin user
                             admin_data = {
@@ -58,12 +59,12 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
 
         else:
             # If users exist, show the normal login form
-            st.title("🔐 Đăng nhập hệ thống")
+            render_page_title("🔐 Đăng nhập hệ thống")
             with st.form("login_form"):
                 username = st.text_input("Tên đăng nhập")
                 password = st.text_input("Mật khẩu", type="password")
                 remember_me = st.checkbox("Ghi nhớ đăng nhập trên thiết bị này")
-                login_button = st.form_submit_button("Đăng nhập")
+                login_button = st.form_submit_button("Đăng nhập", use_container_width=True, type="primary")
 
                 if login_button:
                     status, data = auth_mgr.login(username, password, remember_me)
@@ -71,7 +72,7 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                     if status == 'SUCCESS':
                         st.success("Đăng nhập thành công!")
                         time.sleep(1)
-                        st.rerun() 
+                        st.rerun()
                     elif status == 'MIGRATED':
                         st.info(data)
                     elif status == 'FAILED':
