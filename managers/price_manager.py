@@ -33,8 +33,19 @@ class PriceManager:
         return [doc.to_dict() for doc in docs]
 
     def get_active_prices_for_branch(self, branch_id: str):
-        docs = self.prices_col.where('branch_id', '==', branch_id).where('is_active', '==', True).stream()
-        return [doc.to_dict() for doc in docs]
+        """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh (đã sửa lỗi)."""
+        try:
+            # Đơn giản hóa truy vấn để chỉ lọc theo branch_id
+            docs_in_branch = self.prices_col.where('branch_id', '==', branch_id).stream()
+
+            # Lọc các sản phẩm 'is_active' bằng Python
+            active_products = [
+                doc.to_dict() for doc in docs_in_branch if doc.to_dict().get('is_active', False)
+            ]
+            return active_products
+        except Exception as e:
+            print(f"Error getting active prices for branch {branch_id}: {e}")
+            return []
 
     def get_price(self, sku: str, branch_id: str):
         doc = self.prices_col.document(f"{branch_id}_{sku}").get()
