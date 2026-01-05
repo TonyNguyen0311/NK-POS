@@ -1,7 +1,7 @@
 
 import uuid
 import logging
-from google.cloud import firestore
+from firebase_admin import firestore
 from datetime import datetime
 
 class InventoryManager:
@@ -96,7 +96,7 @@ class InventoryManager:
         return transfer_id
 
     def _update_transfer_status(self, transaction, transfer_ref, new_status, user_id, update_data={}):
-        payload = {"status": new_status, "history": firestore.ArrayUnion([{"status": new_status, "updated_at": datetime.now().isoformat(), "user_id": user_id}])}
+        payload = {"status": new_status, "history": firestore.FieldValue.array_union([{"status": new_status, "updated_at": datetime.now().isoformat(), "user_id": user_id}])}
         payload.update(update_data)
         transaction.update(transfer_ref, payload)
 

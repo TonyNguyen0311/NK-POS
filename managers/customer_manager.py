@@ -1,6 +1,7 @@
+
 import uuid
 from datetime import datetime
-from google.cloud import firestore
+from firebase_admin import firestore
 
 class CustomerManager:
     def __init__(self, firebase_client):
