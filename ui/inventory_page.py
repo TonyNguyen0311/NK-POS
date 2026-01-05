@@ -128,14 +128,21 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             else:
                 with st.spinner("Đang xử lý nghiệp vụ nhập hàng..."):
                     try:
-                        inv_mgr.receive_stock(
+                        current_quantity = inv_mgr.get_stock_quantity(selected_sku, selected_branch)
+                        new_quantity = current_quantity + quantity
+
+                        full_notes = f"Nhà cung cấp: {supplier}. Ghi chú: {notes}."
+                        if cost_price > 0:
+                            total_cost = cost_price * quantity
+                            full_notes += f" Tổng giá nhập: {format_currency(total_cost, 'VND')} ({format_currency(cost_price, 'VND')}/đv)."
+
+                        inv_mgr.adjust_stock(
                             sku=selected_sku,
                             branch_id=selected_branch,
-                            quantity=quantity,
+                            new_quantity=new_quantity,
                             user_id=user_info['uid'],
-                            cost_price=cost_price,
-                            supplier=supplier,
-                            notes=notes
+                            reason="Nhập hàng",
+                            notes=full_notes
                         )
                         st.success(f"Nhập hàng thành công cho sản phẩm {product_options[selected_sku]}.")
                         st.cache_data.clear()
