@@ -9,6 +9,13 @@ class PriceManager:
         self.db = firebase_client.db
         self.prices_col = self.db.collection('branch_prices')
         self.schedules_col = self.db.collection('price_schedules')
+        self._instance_id = uuid.uuid4()
+
+    def __hash__(self):
+        return hash(self._instance_id)
+
+    def __eq__(self, other):
+        return isinstance(other, PriceManager) and self._instance_id == other._instance_id
 
     # --- CÁC HÀM QUẢN LÝ GIÁ TRỰC TIẾP ---
     def set_price(self, sku: str, branch_id: str, price: float):
@@ -21,7 +28,9 @@ class PriceManager:
             'price': price,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
-        st.cache.clear()
+        self.get_all_prices.clear()
+        self.get_active_prices_for_branch.clear()
+        self.get_price.clear()
 
     def set_business_status(self, sku: str, branch_id: str, is_active: bool):
         doc_id = f"{branch_id}_{sku}"
@@ -29,14 +38,15 @@ class PriceManager:
             'is_active': is_active,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
-        st.cache.clear()
+        self.get_all_prices.clear()
+        self.get_active_prices_for_branch.clear()
 
-    @st.cache(allow_output_mutation=True, ttl=300)
+    @st.cache_data(ttl=300)
     def get_all_prices(self):
         docs = self.prices_col.stream()
         return [doc.to_dict() for doc in docs]
 
-    @st.cache(allow_output_mutation=True, ttl=300)
+    @st.cache_data(ttl=300)
     def get_active_prices_for_branch(self, branch_id: str):
         """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh (đã sửa lỗi)."""
         try:
@@ -50,7 +60,7 @@ class PriceManager:
             print(f"Error getting active prices for branch {branch_id}: {e}")
             return []
 
-    @st.cache(allow_output_mutation=True, ttl=300)
+    @st.cache_data(ttl=300)
     def get_price(self, sku: str, branch_id: str):
         doc = self.prices_col.document(f"{branch_id}_{sku}").get()
         return doc.to_dict() if doc.exists else None

@@ -15,6 +15,13 @@ class ProductManager:
         self.products_collection = self.db.collection('products')
         self.image_handler = self._initialize_image_handler()
         self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
+        self._instance_id = uuid.uuid4()
+    
+    def __hash__(self):
+        return hash(self._instance_id)
+
+    def __eq__(self, other):
+        return isinstance(other, ProductManager) and self._instance_id == other._instance_id
 
     def _initialize_image_handler(self):
         if "drive_oauth" in st.secrets:
@@ -26,7 +33,7 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler: {e}")
         return None
 
-    @st.cache(allow_output_mutation=True, ttl=300)
+    @st.cache_data(ttl=300)
     def get_all_category_items(self, collection_name: str):
         try:
             docs = self.db.collection(collection_name).order_by("created_at").stream()
@@ -42,7 +49,7 @@ class ProductManager:
             data['id'] = doc_ref.id
             data['created_at'] = firestore.SERVER_TIMESTAMP
             doc_ref.set(data)
-            st.cache.clear()
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error adding item to {collection_name}: {e}")
@@ -51,7 +58,7 @@ class ProductManager:
     def update_category_item(self, collection_name: str, doc_id: str, updates: dict):
         try:
             self.db.collection(collection_name).document(doc_id).update(updates)
-            st.cache.clear()
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error updating item {doc_id} in {collection_name}: {e}")
@@ -60,7 +67,7 @@ class ProductManager:
     def delete_category_item(self, collection_name: str, doc_id: str):
         try:
             self.db.collection(collection_name).document(doc_id).delete()
-            st.cache.clear()
+            self.get_all_category_items.clear()
             return True
         except Exception as e:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
@@ -127,7 +134,7 @@ class ProductManager:
                 if new_image_id is not None:
                     self.products_collection.document(sku).update({'image_id': new_image_id})
             
-            st.cache.clear()
+            self.get_all_products.clear()
 
             return True, f"Tạo sản phẩm '{product_data['name']}' (SKU: {sku}) thành công!"
         except Exception as e:
@@ -151,7 +158,8 @@ class ProductManager:
                 updates['updated_at'] = firestore.SERVER_TIMESTAMP
                 product_ref.update(updates)
 
-            st.cache.clear()
+            self.get_all_products.clear()
+            self.get_product_by_id.clear()
 
             return True, f"Sản phẩm {sku} đã được cập nhật thành công."
         except Exception as e:
@@ -161,7 +169,8 @@ class ProductManager:
     def set_product_active_status(self, product_id, active: bool):
         try:
             self.products_collection.document(product_id).update({'active': active, 'updated_at': firestore.SERVER_TIMESTAMP})
-            st.cache.clear()
+            self.get_all_products.clear()
+            self.get_product_by_id.clear()
             return True, "Cập nhật trạng thái thành công"
         except Exception as e:
             return False, f"Lỗi: {e}"
@@ -178,13 +187,14 @@ class ProductManager:
                     logging.warning(f"Không thể xóa ảnh của sản phẩm {product_id}. Lỗi: {e}.")
             
             product_ref.delete()
-            st.cache.clear()
+            self.get_all_products.clear()
+            self.get_product_by_id.clear()
             return True, f"Sản phẩm {product_id} đã được xóa vĩnh viễn."
         except Exception as e:
             logging.error(f"Error deleting product {product_id}: {e}")
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
-    @st.cache(allow_output_mutation=True, ttl=600)
+    @st.cache_data(ttl=600)
     def get_all_products(self, active_only: bool = True):
         try:
             base_query = self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -205,7 +215,7 @@ class ProductManager:
                 st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
-    @st.cache(allow_output_mutation=True, ttl=600)
+    @st.cache_data(ttl=600)
     def get_product_by_id(self, product_id):
         if not product_id: return None
         try:

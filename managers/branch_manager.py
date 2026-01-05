@@ -7,6 +7,14 @@ class BranchManager:
     def __init__(self, firebase_client):
         self.db = firebase_client.db
         self.collection = self.db.collection('branches')
+        # Add a unique identifier for hashing
+        self._instance_id = uuid.uuid4()
+
+    def __hash__(self):
+        return hash(self._instance_id)
+
+    def __eq__(self, other):
+        return isinstance(other, BranchManager) and self._instance_id == other._instance_id
 
     def create_branch(self, data: dict):
         """Tạo chi nhánh mới từ một dictionary"""
@@ -18,11 +26,11 @@ class BranchManager:
         new_data['created_at'] = datetime.now().isoformat()
         
         self.collection.document(branch_id).set(new_data)
-        # Xóa cache sau khi tạo mới
-        st.cache.clear()
+        # Manually clear the cache for all users
+        self.list_branches.clear()
         return new_data
 
-    @st.cache(allow_output_mutation=True, ttl=3600)
+    @st.cache_data(ttl=3600)
     def list_branches(self, active_only: bool = True):
         """Lấy danh sách chi nhánh, có thể chỉ lấy các chi nhánh đang hoạt động."""
         query = self.collection
@@ -32,7 +40,7 @@ class BranchManager:
         docs = query.stream()
         return [doc.to_dict() for doc in docs]
 
-    @st.cache(allow_output_mutation=True, ttl=3600)
+    @st.cache_data(ttl=3600)
     def get_branch(self, branch_id):
         """Lấy thông tin chi tiết của một chi nhánh."""
         if not branch_id:
@@ -46,6 +54,7 @@ class BranchManager:
         """Cập nhật thông tin cho một chi nhánh."""
         updates['updated_at'] = datetime.now().isoformat()
         self.collection.document(branch_id).update(updates)
-        # Xóa cache sau khi cập nhật
-        st.cache.clear()
+        # Manually clear caches
+        self.list_branches.clear()
+        self.get_branch.clear()
         return self.get_branch(branch_id) # Trả về dữ liệu đã cập nhật
