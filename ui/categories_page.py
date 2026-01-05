@@ -48,7 +48,7 @@ def render_generic_category_ui(manager, title, collection_name, field_name, colu
                 try:
                     manager.add_category_item(collection_name, {field_name: new_item_name})
                     st.success(f"Đã thêm '{new_item_name}' thành công!")
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi khi thêm: {e}")
 
@@ -80,7 +80,7 @@ def render_generic_category_ui(manager, title, collection_name, field_name, colu
                         try:
                             manager.update_category_item(collection_name, row['ID'], {field_name: new_name})
                             st.success(f"Đã cập nhật thành công!")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Lỗi khi cập nhật: {e}")
             with col3:
@@ -88,7 +88,7 @@ def render_generic_category_ui(manager, title, collection_name, field_name, colu
                     try:
                         manager.delete_category_item(collection_name, row['ID'])
                         st.success(f"Đã xóa thành công!")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Lỗi khi xóa: {e}")
 
