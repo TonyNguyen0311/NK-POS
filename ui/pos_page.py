@@ -80,16 +80,16 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
 
             selling_price = p.get('selling_price', 0)
             base_price = p.get('base_price')
-            price_html = f"<div class='product-card-price'>{format_currency(selling_price, 'đ')}</div>"
+            price_html = f'<div class="product-card-price">{format_currency(selling_price, "đ")}</div>'
             if base_price and base_price > selling_price:
-                price_html = f"""
+                price_html = f'''
                 <div class='product-card-price'>
                     {format_currency(selling_price, 'đ')}
                     <span class='product-card-price-old'>{format_currency(base_price, 'đ')}</span>
                 </div>
-                """
+                '''
 
-            card_html = f"""
+            card_html = f'''
             <div class="product-card">
                 <div class="product-card-image-wrapper">
                     <img src="{image_data_uri}" class="product-card-image" alt="{p['name']}">
@@ -98,10 +98,10 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
                     <h3 class="product-card-title">{p['name']}</h3>
                     {price_html}
                     <div class="product-card-stock">Tồn kho: {format_number(stock_quantity)}</div>
-                    <a href="?add_to_cart={sku}" class="product-card-add-button">➕ Thêm vào giỏ</a>
+                    <a href="?add_to_cart={sku}" class="product-card-add-button" target="_self">➕ Thêm vào giỏ</a>
                 </div>
             </div>
-            """
+            '''
             product_cards_html.append(card_html)
 
         grid_html = f"<div class='product-grid'>{'' .join(product_cards_html)}</div>"
