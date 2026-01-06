@@ -90,7 +90,11 @@ class ReportManager:
                 # Chuyển đổi bất kỳ đối tượng datetime nào (bao gồm DatetimeWithNanoseconds) thành chuỗi
                 for key, value in p_data.items():
                     if isinstance(value, datetime):
-                        p_data[key] = value.isoformat()
+                        # Firestore's DatetimeWithNanoseconds needs conversion to standard datetime
+                        if hasattr(value, 'to_datetime'):
+                            p_data[key] = value.to_datetime().isoformat()
+                        else:
+                            p_data[key] = value.isoformat()
                 product_details[p.id] = p_data
 
             # 2. Lấy dữ liệu tồn kho cho các chi nhánh được chọn
