@@ -98,39 +98,35 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             ["Phiếu Nhập hàng", "Phiếu Điều chỉnh kho"],
             key="voucher_type_selector",
             horizontal=True,
-            on_change=lambda: st.session_state.update(voucher_items=[]) # Clear items on type change
+            on_change=lambda: st.session_state.update(voucher_items=[])
         )
         st.session_state.voucher_type = voucher_type
 
-        # --- Sub-form for adding items ---
         with st.form("add_item_form", clear_on_submit=True):
             st.write("**Thêm sản phẩm vào chứng từ**")
-            
             c1, c2 = st.columns([2, 1])
-            selected_sku = c1.selectbox("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options[x], key="item_sku")
+            selected_sku = c1.selectbox("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options.get(x, x), key="item_sku")
             
             if voucher_type == "Phiếu Nhập hàng":
                 quantity = c2.number_input("Số lượng nhập", min_value=1, step=1, key="item_qty")
                 purchase_price = st.number_input("Giá nhập (trên 1 đơn vị)", min_value=0, step=1000, key="item_price")
-            else: # Stock Adjustment
+            else: 
                 current_stock_item = inv_mgr.get_inventory_item(selected_sku, selected_branch)
                 current_qty = current_stock_item.get('stock_quantity', 0) if current_stock_item else 0
                 c2.info(f"Tồn hiện tại: {current_qty}")
                 quantity = st.number_input("Số lượng thực tế", min_value=0, step=1, key="item_qty")
 
-            add_item_submitted = st.form_submit_button("Thêm vào phiếu", use_container_width=True)
-
-            if add_item_submitted and selected_sku:
-                item_data = {'sku': selected_sku, 'name': product_map[selected_sku]['name']}
-                if voucher_type == "Phiếu Nhập hàng":
-                    item_data.update({'quantity': quantity, 'purchase_price': purchase_price})
-                else:
-                    item_data.update({'actual_quantity': quantity})
-                st.session_state.voucher_items.append(item_data)
+            if st.form_submit_button("Thêm vào phiếu", use_container_width=True):
+                if selected_sku:
+                    item_data = {'sku': selected_sku, 'name': product_map[selected_sku]['name']}
+                    if voucher_type == "Phiếu Nhập hàng":
+                        item_data.update({'quantity': quantity, 'purchase_price': purchase_price})
+                    else:
+                        item_data.update({'actual_quantity': quantity})
+                    st.session_state.voucher_items.append(item_data)
         
         st.divider()
 
-        # --- Main form for submitting the voucher ---
         if st.session_state.voucher_items:
             st.write("**Các sản phẩm trong phiếu:**")
             df_items = pd.DataFrame(st.session_state.voucher_items)
@@ -138,23 +134,19 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
 
             with st.form("create_voucher_form"):
                 if voucher_type == "Phiếu Nhập hàng":
-                    st.subheader("Tạo Phiếu Nhập hàng")
+                    st.subheader("Thông tin Phiếu Nhập hàng")
                     c1, c2 = st.columns(2)
-                    receipt_date = c1.date_input("Ngày nhập hàng", value=datetime.now())
+                    receipt_date = c1.date_input("Ngày nhập hàng", value=datetime.now(), help="Ngày chứng từ có hiệu lực. Mặc định là hôm nay.")
                     supplier = c2.text_input("Nhà cung cấp")
                     notes = st.text_area("Ghi chú chung")
-                    submit_button = st.form_submit_button("Xác nhận Tạo Phiếu Nhập", use_container_width=True, type="primary")
-
-                    if submit_button:
+                    
+                    if st.form_submit_button("Xác nhận Tạo Phiếu Nhập", use_container_width=True, type="primary"):
                         with st.spinner("Đang tạo phiếu nhập hàng..."):
                             try:
                                 voucher_id = inv_mgr.create_goods_receipt(
-                                    branch_id=selected_branch,
-                                    user_id=user_info['uid'],
-                                    items=st.session_state.voucher_items,
-                                    supplier=supplier,
-                                    notes=notes,
-                                    receipt_date=receipt_date
+                                    branch_id=selected_branch, user_id=user_info['uid'],
+                                    items=st.session_state.voucher_items, supplier=supplier,
+                                    notes=notes, receipt_date=receipt_date
                                 )
                                 st.success(f"Tạo phiếu nhập hàng {voucher_id} thành công!")
                                 st.session_state.voucher_items = []
@@ -162,24 +154,20 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                             except Exception as e:
                                 st.error(f"Lỗi khi tạo phiếu nhập: {e}")
 
-                else: # Stock Adjustment
-                    st.subheader("Tạo Phiếu Điều chỉnh kho")
+                else: 
+                    st.subheader("Thông tin Phiếu Điều chỉnh kho")
                     c1, c2 = st.columns(2)
-                    adjustment_date = c1.date_input("Ngày điều chỉnh", value=datetime.now())
+                    adjustment_date = c1.date_input("Ngày điều chỉnh", value=datetime.now(), help="Ngày chứng từ có hiệu lực. Mặc định là hôm nay.")
                     reason = c2.selectbox("Lý do điều chỉnh", ["Kiểm kê định kỳ", "Hàng hỏng", "Mất mát", "Khác"])
                     notes = st.text_area("Ghi chú chung cho phiếu điều chỉnh")
-                    submit_button = st.form_submit_button("Xác nhận Tạo Phiếu Điều chỉnh", use_container_width=True, type="primary")
-
-                    if submit_button:
+                    
+                    if st.form_submit_button("Xác nhận Tạo Phiếu Điều chỉnh", use_container_width=True, type="primary"):
                         with st.spinner("Đang tạo phiếu điều chỉnh..."):
                             try:
                                 voucher_id = inv_mgr.create_adjustment(
-                                    branch_id=selected_branch,
-                                    user_id=user_info['uid'],
-                                    items=st.session_state.voucher_items,
-                                    reason=reason,
-                                    notes=notes,
-                                    adjustment_date=adjustment_date
+                                    branch_id=selected_branch, user_id=user_info['uid'],
+                                    items=st.session_state.voucher_items, reason=reason,
+                                    notes=notes, adjustment_date=adjustment_date
                                 )
                                 if voucher_id:
                                     st.success(f"Tạo phiếu điều chỉnh {voucher_id} thành công!")
@@ -192,11 +180,9 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
         else:
             st.info("Chưa có sản phẩm nào được thêm vào chứng từ.")
 
-
     # --- TAB 3: VOUCHER HISTORY ---
     with tab3:
         st.subheader("Lịch sử Chứng từ Kho")
-        
         vouchers = inv_mgr.get_vouchers_by_branch(branch_id=selected_branch, limit=100)
 
         if not vouchers:
@@ -219,26 +205,20 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                     header_cols[3].success("Hoàn thành")
 
                 with st.expander("Xem chi tiết"):
-                    st.write("---")
                     st.markdown(f"**Người tạo:** `{voucher['created_by']}`")
                     st.markdown(f"**Ghi chú:** *{voucher.get('notes', 'Không có')}*")
-                    if 'supplier' in voucher:
-                        st.markdown(f"**Nhà cung cấp:** {voucher['supplier']}")
-
+                    if 'supplier' in voucher: st.markdown(f"**Nhà cung cấp:** {voucher['supplier']}")
                     st.write("**Sản phẩm trong chứng từ:**")
-                    items_df = pd.DataFrame(voucher['items'])
-                    st.dataframe(items_df, use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(voucher['items']), use_container_width=True, hide_index=True)
 
                     if user_role == 'admin' and voucher_status != 'CANCELLED':
                         st.write("---")
                         st.error("Khu vực nguy hiểm (chỉ Admin)")
                         if st.button("🚨 Huỷ Chứng từ này", key=f"cancel_{voucher_id}", help=f"Hành động này sẽ đảo ngược toàn bộ giao dịch của chứng từ {voucher_id}. Không thể hoàn tác."):
                             try:
-                                with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."):
+                                with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."): 
                                     inv_mgr.cancel_voucher(voucher_id, user_info['uid'])
                                     st.success(f"Đã huỷ thành công chứng từ {voucher_id}. Tải lại trang để cập nhật.")
                                     st.rerun()
-                            except Exception as e:
-                                st.error(f"Lỗi khi huỷ chứng từ: {e}")
-
+                            except Exception as e: st.error(f"Lỗi khi huỷ chứng từ: {e}")
                 st.divider()
