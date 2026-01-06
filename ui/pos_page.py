@@ -21,18 +21,117 @@ def initialize_pos_state(branch_id):
 # --- UI Rendering Functions ---
 
 @st.cache_data(show_spinner=False)
-def get_placeholder_image():
-    """Reads the placeholder image and returns its byte representation."""
+def get_image_as_base64(image_bytes):
+    """Converts image bytes to a base64 encoded string."""
+    return base64.b64encode(image_bytes).decode()
+
+@st.cache_data(show_spinner=False)
+def get_placeholder_image_b64():
+    """Reads the placeholder image and returns its base64 representation."""
     try:
         placeholder_path = os.path.join("assets", "no-image.png")
         with open(placeholder_path, "rb") as f:
-            return f.read()
+            return get_image_as_base64(f.read())
     except Exception:
         return None
 
+def get_product_grid_styles():
+    """Returns the CSS styles for the responsive product grid."""
+    return """
+    <style>
+        /* Main grid container */
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1.5rem;
+        }
+
+        /* Individual product card */
+        .product-card {
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(49, 51, 63, 0.2);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            transition: box-shadow 0.3s ease;
+            height: 100%; /* Ensure cards in a row have same height */
+        }
+        .product-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Image container with fixed aspect ratio */
+        .product-image-container {
+            aspect-ratio: 1 / 1;
+            width: 100%;
+            border-radius: 0.25rem;
+            overflow: hidden;
+            margin-bottom: 0.75rem;
+        }
+
+        .product-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Product title with line-clamp */
+        .product-title {
+            font-weight: bold;
+            font-size: 1em;
+            margin-bottom: 0.25rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            height: 2.4em; /* Approx 2 lines height */
+        }
+        
+        .product-details {
+            flex-grow: 1; /* Pushes the button to the bottom */
+            display: flex;
+            flex-direction: column;
+        }
+
+        .product-price {
+            color: #D22B2B;
+            font-weight: bold;
+            margin-bottom: 0.25rem;
+        }
+
+        .product-stock {
+            font-size: 0.85em;
+            color: #555;
+            flex-grow: 1; /* Takes up available space to push button down */
+            margin-bottom: 0.75rem;
+        }
+
+        /* Custom 'Add to Cart' button styled as a link */
+        .add-to-cart-btn {
+            display: block;
+            text-align: center;
+            background-color: #0068c9; /* Streamlit primary color */
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            transition: background-color 0.3s ease;
+            border: 1px solid #0068c9;
+        }
+        .add-to-cart-btn:hover {
+            background-color: #0055a8;
+            color: white;
+        }
+    </style>
+    """
+
 def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Displays the product search, filter, and a responsive grid of product cards using Streamlit widgets."""
+    """Displays a fully responsive product grid using HTML/CSS within st.markdown."""
     render_section_header("Thư viện Sản phẩm")
+    
+    # Inject CSS styles
+    st.markdown(get_product_grid_styles(), unsafe_allow_html=True)
     
     # 1. Filters
     search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input", label_visibility="collapsed")
@@ -52,57 +151,54 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
     if selected_cat != "ALL":
         filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
 
-    # 4. Grid Rendering using Streamlit Widgets
+    # 3. Grid Rendering using HTML/CSS
     if not filtered_products:
         st.info("Không tìm thấy sản phẩm phù hợp.")
     else:
-        num_columns = 4 # Use more columns for a denser layout on desktop
-        cols = st.columns(num_columns)
-        placeholder_image_bytes = get_placeholder_image()
+        placeholder_b64 = get_placeholder_image_b64()
+        
+        # Start the grid
+        html_cards = '<div class="product-grid">'
 
-        for i, p in enumerate(filtered_products):
-            col = cols[i % num_columns]
-            with col:
-                sku = p.get('sku')
-                if not sku: continue
+        for p in filtered_products:
+            sku = p.get('sku')
+            if not sku: continue
 
-                stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
-                if stock_quantity <= 0: continue
+            stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
+            if stock_quantity <= 0: continue
 
-                # Container now has auto height to fit content, removing internal scroll
-                with st.container(border=True):
-                    # --- Image ---
-                    image_id = p.get('image_id')
-                    image_data = placeholder_image_bytes
-                    if image_id and product_mgr.image_handler:
-                        loaded_bytes = product_mgr.image_handler.load_drive_image(image_id)
-                        if loaded_bytes:
-                            image_data = loaded_bytes
-                    st.image(image_data, use_column_width="always")
+            # --- Get Image ---
+            image_b64 = placeholder_b64
+            image_id = p.get('image_id')
+            if image_id and product_mgr.image_handler:
+                img_bytes = product_mgr.image_handler.load_drive_image(image_id)
+                if img_bytes:
+                    image_b64 = get_image_as_base64(img_bytes)
+            
+            image_src = f"data:image/png;base64,{image_b64}" if image_b64 else ""
 
-                    # --- Details & Price ---
-                    st.markdown(f"**{p['name']}**")
-                    selling_price = p.get('selling_price', 0)
-                    base_price = p.get('base_price')
-                    
-                    price_html = f"<div style='color: #D22B2B; font-weight: bold;'>{format_currency(selling_price, 'đ')}</div>"
-                    if base_price and base_price > selling_price:
-                        price_html = f'''
-                        <div style='color: #D22B2B; font-weight: bold;'>
-                            {format_currency(selling_price, 'đ')}
-                            <span style='text-decoration: line-through; color: grey; font-size: 0.9em; margin-left: 0.5em;'>{format_currency(base_price, 'đ')}</span>
-                        </div>
-                        '''
-                    st.markdown(price_html, unsafe_allow_html=True)
-                    
-                    st.markdown(f"<small>Tồn kho: {format_number(stock_quantity)}</small>", unsafe_allow_html=True)
-                    st.empty() # Adds a flexible vertical space to push button down
-                    
-                    # --- Add to Cart Button (The Streamlit Way) ---
-                    if st.button("➕ Thêm vào giỏ", key=f"add_{sku}", use_container_width=True, type="primary"):
-                        pos_mgr.add_item_to_cart(branch_id, p, stock_quantity)
-                        st.toast(f"Đã thêm '{p['name']}' vào giỏ!", icon="🛒")
-                        st.rerun()
+            # --- Get Price ---
+            selling_price = p.get('selling_price', 0)
+            
+            # --- Build HTML for one card ---
+            html_cards += f'''
+            <div class="product-card">
+                <div class="product-image-container">
+                    <img src="{image_src}" class="product-image">
+                </div>
+                <div class="product-details">
+                    <div class="product-title">{p['name']}</div>
+                    <div class="product-price">{format_currency(selling_price, 'đ')}</div>
+                    <div class="product-stock">Tồn kho: {format_number(stock_quantity)}</div>
+                    <a href="?add_to_cart={sku}" target="_self" class="add-to-cart-btn">➕ Thêm vào giỏ</a>
+                </div>
+            </div>
+            '''
+
+        # Close the grid
+        html_cards += '</div>'
+        st.markdown(html_cards, unsafe_allow_html=True)
+
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
     """Displays the items currently in the cart."""
@@ -117,13 +213,15 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
             with st.container():
                 col_img, col_details = st.columns([1, 4])
                 with col_img:
+                    # Optimized image loading for cart
                     image_id = item.get('image_id')
-                    image_data = "assets/no-image.png"
+                    image_data = "assets/no-image.png" 
                     if image_id and product_mgr.image_handler:
-                        loaded_data = product_mgr.image_handler.load_drive_image(image_id)
-                        if loaded_data:
+                         loaded_data = product_mgr.image_handler.load_drive_image(image_id)
+                         if loaded_data:
                             image_data = loaded_data
                     st.image(image_data, width=60)
+
 
                 with col_details:
                     st.markdown(f"**{item['name']}** (`{sku}`)")
@@ -207,6 +305,22 @@ def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
         st.session_state.show_confirm_dialog = False
         st.rerun()
 
+def handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, branch_id):
+    """Checks for 'add_to_cart' in URL query_params and handles the action."""
+    if 'add_to_cart' in st.query_params:
+        sku_to_add = st.query_params['add_to_cart']
+        
+        # Find the product and its stock quantity
+        product = product_mgr.get_product_by_sku(sku_to_add)
+        stock_quantity = inventory_mgr.get_inventory_by_branch(branch_id).get(sku_to_add, {}).get('stock_quantity', 0)
+
+        if product and stock_quantity > 0:
+            pos_mgr.add_item_to_cart(branch_id, product, stock_quantity)
+            st.toast(f"Đã thêm '{product['name']}' vào giỏ!", icon="🛒")
+        
+        # Clean up URL and rerun
+        st.query_params.clear()
+        st.rerun()
 
 # --- Main Page Rendering ---
 def render_pos_page(pos_mgr):
@@ -230,6 +344,9 @@ def render_pos_page(pos_mgr):
         st.stop()
 
     initialize_pos_state(selected_branch_id)
+    
+    # --- Handle URL-based Actions ---
+    handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, selected_branch_id)
 
     # --- Cart Calculation ---
     cart_state = pos_mgr.calculate_cart_state(
