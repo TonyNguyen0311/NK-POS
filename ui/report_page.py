@@ -146,6 +146,8 @@ def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, aut
                     detail_df = report_data.get('inventory_details_df')
                     if detail_df is not None and not detail_df.empty:
                         detail_df['branch_name'] = detail_df['branch_id'].map(allowed_branches_map)
+                        if 'average_cost' in detail_df.columns:
+                            detail_df = detail_df.rename(columns={'average_cost': 'cost_price'})
                         st.dataframe(detail_df[['product_name', 'branch_name', 'quantity', 'cost_price', 'total_value']].style.format({'quantity': format_number, 'cost_price': format_currency, 'total_value': format_currency}), use_container_width=True)
             else:
                 st.error(f"Lỗi khi tạo báo cáo tồn kho: {result.get('message')}")
