@@ -14,7 +14,9 @@ from ui._utils import render_page_title, render_branch_selector
 from utils.formatters import format_number, format_currency
 
 def init_session_state():
-    """Initializes session state keys for the voucher creation forms."""
+    """Initializes session state keys for the inventory page."""
+    if 'active_inventory_tab' not in st.session_state:
+        st.session_state.active_inventory_tab = "📊 Tình hình Tồn kho"
     if 'voucher_items' not in st.session_state:
         st.session_state.voucher_items = []
     if 'voucher_type' not in st.session_state:
@@ -54,14 +56,17 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
         product_map = {p['sku']: p for p in all_products if 'sku' in p}
         product_options = {p['sku']: f"{p['name']} ({p['sku']})" for p in all_products if 'sku' in p}
 
-    # --- Main Tabs ---
-    tab1, tab2, tab3 = st.tabs([
-        "📊 Tình hình Tồn kho", "📝 Tạo Chứng từ", "📜 Lịch sử Chứng từ"
-    ])
+    # --- Custom Tab Navigation ---
+    tabs = ["📊 Tình hình Tồn kho", "📝 Tạo Chứng từ", "📜 Lịch sử Chứng từ"]
+    st.session_state.active_inventory_tab = st.radio(
+        "Chức năng:", tabs, horizontal=True, label_visibility="collapsed",
+        key="inventory_tab_selector"
+    )
 
     # --- TAB 1: CURRENT INVENTORY ---
-    with tab1:
+    if st.session_state.active_inventory_tab == "📊 Tình hình Tồn kho":
         st.subheader(f"Tồn kho hiện tại của: {allowed_branches_map[selected_branch]}")
+        # (Content is the same as before)
         if not branch_inventory:
             st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
         else:
@@ -89,19 +94,19 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             else:
                  st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
 
+
     # --- TAB 2: VOUCHER CREATION ---
-    with tab2:
+    elif st.session_state.active_inventory_tab == "📝 Tạo Chứng từ":
         st.subheader("Tạo Chứng từ Kho")
         
         voucher_type = st.radio(
-            "Chọn loại chứng từ:",
-            ["Phiếu Nhập hàng", "Phiếu Điều chỉnh kho"],
-            key="voucher_type_selector",
-            horizontal=True,
+            "Chọn loại chứng từ:", ["Phiếu Nhập hàng", "Phiếu Điều chỉnh kho"],
+            horizontal=True, key="voucher_type_selector",
             on_change=lambda: st.session_state.update(voucher_items=[])
         )
         st.session_state.voucher_type = voucher_type
 
+        # (Rest of the tab content is the same)
         with st.form("add_item_form", clear_on_submit=True):
             st.write("**Thêm sản phẩm vào chứng từ**")
             c1, c2 = st.columns([2, 1])
@@ -149,6 +154,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         st.rerun()
 
                     if submit_button:
+                        # Logic remains the same
                         with st.spinner("Đang tạo phiếu nhập hàng..."):
                             try:
                                 voucher_id = inv_mgr.create_goods_receipt(
@@ -178,6 +184,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         st.rerun()
 
                     if submit_button:
+                        # Logic remains the same
                         with st.spinner("Đang tạo phiếu điều chỉnh..."):
                             try:
                                 voucher_id = inv_mgr.create_adjustment(
@@ -197,8 +204,9 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
             st.info("Chưa có sản phẩm nào được thêm vào chứng từ.")
 
     # --- TAB 3: VOUCHER HISTORY ---
-    with tab3:
+    elif st.session_state.active_inventory_tab == "📜 Lịch sử Chứng từ":
         st.subheader("Lịch sử Chứng từ Kho")
+        # (Content is the same as before)
         vouchers = inv_mgr.get_vouchers_by_branch(branch_id=selected_branch, limit=100)
 
         if not vouchers:
@@ -230,7 +238,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                     if user_role == 'admin' and voucher_status != 'CANCELLED':
                         st.write("---")
                         st.error("Khu vực nguy hiểm (chỉ Admin)")
-                        if st.button("🚨 Huỷ Chứng từ này", key=f"cancel_{voucher_id}", help=f"Hành động này sẽ đảo ngược toàn bộ giao dịch của chứng từ {voucher_id}. Không thể hoàn tác."):
+                        if st.button(f"🚨 Huỷ Chứng từ này", key=f"cancel_{voucher_id}", help=f"Hành động này sẽ đảo ngược toàn bộ giao dịch của chứng từ {voucher_id}. Không thể hoàn tác."):
                             try:
                                 with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."): 
                                     inv_mgr.cancel_voucher(voucher_id, user_info['uid'])
