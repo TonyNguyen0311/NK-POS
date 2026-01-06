@@ -140,7 +140,15 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                     supplier = c2.text_input("Nhà cung cấp")
                     notes = st.text_area("Ghi chú chung")
                     
-                    if st.form_submit_button("Xác nhận Tạo Phiếu Nhập", use_container_width=True, type="primary"):
+                    b1, b2 = st.columns(2)
+                    submit_button = b1.form_submit_button("Xác nhận Tạo Phiếu Nhập", use_container_width=True, type="primary")
+                    cancel_button = b2.form_submit_button("Hủy Giao Dịch", use_container_width=True)
+
+                    if cancel_button:
+                        st.session_state.voucher_items = []
+                        st.rerun()
+
+                    if submit_button:
                         with st.spinner("Đang tạo phiếu nhập hàng..."):
                             try:
                                 voucher_id = inv_mgr.create_goods_receipt(
@@ -161,7 +169,15 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                     reason = c2.selectbox("Lý do điều chỉnh", ["Kiểm kê định kỳ", "Hàng hỏng", "Mất mát", "Khác"])
                     notes = st.text_area("Ghi chú chung cho phiếu điều chỉnh")
                     
-                    if st.form_submit_button("Xác nhận Tạo Phiếu Điều chỉnh", use_container_width=True, type="primary"):
+                    b1, b2 = st.columns(2)
+                    submit_button = b1.form_submit_button("Xác nhận Tạo Phiếu Điều chỉnh", use_container_width=True, type="primary")
+                    cancel_button = b2.form_submit_button("Hủy Giao Dịch", use_container_width=True)
+
+                    if cancel_button:
+                        st.session_state.voucher_items = []
+                        st.rerun()
+
+                    if submit_button:
                         with st.spinner("Đang tạo phiếu điều chỉnh..."):
                             try:
                                 voucher_id = inv_mgr.create_adjustment(
