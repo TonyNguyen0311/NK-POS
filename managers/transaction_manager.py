@@ -1,13 +1,10 @@
-
 import streamlit as st
 from datetime import datetime, time
 
 class TransactionManager:
     def __init__(self, firebase_client):
-        self.fb_client = firebase_client
-
-    def _get_db(self):
-        return self.fb_client.get_db()
+        # FIX: Directly get the db instance from the firebase_client
+        self.db = firebase_client.db
 
     def query_transactions(self, start_date, end_date, branch_id=None):
         """
@@ -21,7 +18,8 @@ class TransactionManager:
         Returns:
             list: A list of transaction dictionaries.
         """
-        db = self._get_db()
+        # FIX: Use self.db directly instead of a non-existent method
+        db = self.db
         
         # Combine date with time to create datetime objects for the query range
         start_datetime = datetime.combine(start_date, time.min)
@@ -54,5 +52,10 @@ class TransactionManager:
                 transactions.append(txn_data)
             return transactions
         except Exception as e:
-            st.error(f"An error occurred while querying transactions: {e}")
+            # DEBUG: Provide a more informative error message
+            st.error(f"Error querying Firestore: {e}")
+            # Log the full traceback to the console for debugging
+            print(f"[DEBUG] Firestore Query Error: {e}")
+            import traceback
+            traceback.print_exc()
             return []
