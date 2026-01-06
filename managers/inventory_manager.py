@@ -5,6 +5,56 @@ import streamlit as st
 from google.cloud import firestore
 from datetime import datetime
 
+
+@firestore.transactional
+def _record_transaction_and_update_inventory_transactional(transaction, db, sku, branch_id, delta, user_id, reason, notes="", purchase_price=None):
+    """
+    A transactional function to log a transaction and update inventory state.
+    This function is intended to be run within a Firestore transaction.
+    """
+    inventory_col = db.collection('inventory')
+    transactions_col = db.collection('inventory_transactions')
+    inv_doc_ref = inventory_col.document(f"{sku.upper()}_{branch_id}")
+    inv_snapshot = inv_doc_ref.get(transaction=transaction)
+    
+    current_quantity = 0
+    current_avg_cost = 0
+    if inv_snapshot.exists:
+        inv_data = inv_snapshot.to_dict()
+        current_quantity = inv_data.get('stock_quantity', 0)
+        current_avg_cost = inv_data.get('average_cost', 0)
+
+    new_quantity = current_quantity + delta
+    new_avg_cost = current_avg_cost
+
+    if delta > 0 and purchase_price is not None and purchase_price >= 0:
+        current_total_value = current_quantity * current_avg_cost
+        adjustment_value = delta * purchase_price
+        if new_quantity > 0:
+            new_avg_cost = (current_total_value + adjustment_value) / new_quantity
+        else:
+            new_avg_cost = 0
+    
+    if new_quantity < 0:
+        raise Exception(f"Tồn kho không đủ cho sản phẩm {sku}. Giao dịch thất bại.")
+
+    transaction.set(inv_doc_ref, {
+        'sku': sku,
+        'branch_id': branch_id,
+        'stock_quantity': new_quantity,
+        'average_cost': new_avg_cost,
+        'last_updated': datetime.now().isoformat(),
+    }, merge=True)
+
+    trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
+    trans_ref = transactions_col.document(trans_id)
+    transaction.set(trans_ref, {
+        'id': trans_id, 'sku': sku, 'branch_id': branch_id, 'user_id': user_id,
+        'reason': reason, 'delta': delta, 'quantity_before': current_quantity,
+        'quantity_after': new_quantity, 'cost_at_transaction': new_avg_cost,
+        'purchase_price': purchase_price, 'notes': notes, 'timestamp': datetime.now().isoformat(),
+    })
+
 def hash_inventory_manager(manager):
     return "InventoryManager"
 
@@ -19,7 +69,6 @@ class InventoryManager:
         return f"{sku.upper()}_{branch_id}"
 
     def _clear_inventory_caches(self, branch_id: str, sku: str = None):
-        # Clear all Streamlit cache. A bit of a sledgehammer, but ensures data consistency.
         st.cache_data.clear()
 
     def get_inventory_item(self, sku: str, branch_id: str):
@@ -33,61 +82,16 @@ class InventoryManager:
             logging.error(f"Error getting inventory item {sku}@{branch_id}: {e}")
             return None
 
-    def _record_transaction_and_update_inventory(self, transaction, sku, branch_id, delta, user_id, reason, notes="", purchase_price=None):
-        """
-        A transactional function to log a transaction and update inventory state.
-        This function is intended to be run within a Firestore transaction.
-        """
-        inv_doc_ref = self.inventory_col.document(self._get_doc_id(sku, branch_id))
-        inv_snapshot = inv_doc_ref.get(transaction=transaction)
-        
-        current_quantity = 0
-        current_avg_cost = 0
-        if inv_snapshot.exists:
-            inv_data = inv_snapshot.to_dict()
-            current_quantity = inv_data.get('stock_quantity', 0)
-            current_avg_cost = inv_data.get('average_cost', 0)
-
-        new_quantity = current_quantity + delta
-        new_avg_cost = current_avg_cost
-
-        if delta > 0 and purchase_price is not None and purchase_price >= 0:
-            current_total_value = current_quantity * current_avg_cost
-            adjustment_value = delta * purchase_price
-            if new_quantity > 0:
-                new_avg_cost = (current_total_value + adjustment_value) / new_quantity
-            else:
-                new_avg_cost = 0
-        
-        if new_quantity < 0:
-            raise Exception(f"Tồn kho không đủ cho sản phẩm {sku}. Giao dịch thất bại.")
-
-        transaction.set(inv_doc_ref, {
-            'sku': sku,
-            'branch_id': branch_id,
-            'stock_quantity': new_quantity,
-            'average_cost': new_avg_cost,
-            'last_updated': datetime.now().isoformat(),
-        }, merge=True)
-
-        trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
-        trans_ref = self.transactions_col.document(trans_id)
-        transaction.set(trans_ref, {
-            'id': trans_id, 'sku': sku, 'branch_id': branch_id, 'user_id': user_id,
-            'reason': reason, 'delta': delta, 'quantity_before': current_quantity,
-            'quantity_after': new_quantity, 'cost_at_transaction': new_avg_cost,
-            'purchase_price': purchase_price, 'notes': notes, 'timestamp': datetime.now().isoformat(),
-        })
-
     def receive_stock(self, sku, branch_id, quantity, purchase_price, user_id, supplier="", notes=""):
         if quantity <= 0:
             raise ValueError("Số lượng nhập phải lớn hơn 0.")
         
         full_notes = f"Nhà cung cấp: {supplier or 'N/A'}. Ghi chú: {notes or 'Không có'}."
         
-        # Correctly run the transactional function
-        self.db.run_transaction(
-            self._record_transaction_and_update_inventory,
+        transaction = self.db.transaction()
+        _record_transaction_and_update_inventory_transactional(
+            transaction,
+            self.db,
             sku, branch_id, quantity, user_id, "GOODS_RECEIPT", full_notes, purchase_price
         )
         self._clear_inventory_caches(branch_id, sku)
@@ -100,9 +104,10 @@ class InventoryManager:
         if delta == 0: 
             return
 
-        # Correctly run the transactional function
-        self.db.run_transaction(
-            self._record_transaction_and_update_inventory,
+        transaction = self.db.transaction()
+        _record_transaction_and_update_inventory_transactional(
+            transaction,
+            self.db,
             sku, branch_id, delta, user_id, f"ADJUSTMENT_{reason.upper()}", notes, None
         )
         self._clear_inventory_caches(branch_id, sku)
@@ -144,16 +149,14 @@ class InventoryManager:
         return transfer_id
 
     def ship_transfer(self, transfer_id, user_id):
-        pass # TODO: Refactor to use _record_transaction_and_update_inventory
+        pass # TODO: Refactor to use the new transaction model
 
     def receive_transfer(self, transfer_id, user_id):
-        pass # TODO: Refactor to use _record_transaction_and_update_inventory
+        pass # TODO: Refactor to use the new transaction model
 
     def get_transfers(self, branch_id: str = None, direction: str = 'all', status: str = None, limit=100):
-        # This function can remain as is for now.
         pass
 
-# Apply decorators after the class is defined for better organization and to avoid potential circular dependencies.
 InventoryManager.get_inventory_item = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_item)
 InventoryManager.get_stock_quantity = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_stock_quantity)
 InventoryManager.get_inventory_by_branch = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_by_branch)
