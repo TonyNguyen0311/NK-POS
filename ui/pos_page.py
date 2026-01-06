@@ -1,7 +1,10 @@
+
 import streamlit as st
+import base64
 from datetime import datetime
 from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector
 from utils.formatters import format_currency, format_number
+import os
 
 # --- State Management ---
 def initialize_pos_state(branch_id):
@@ -14,68 +17,96 @@ def initialize_pos_state(branch_id):
         st.session_state.pos_category = "ALL"
         st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
         st.session_state.current_pos_branch_key = branch_key
-        st.rerun()
+        # No st.rerun() here to allow param handling on first load
 
 # --- UI Rendering Functions ---
 
+@st.cache_data(show_spinner=False)
+def get_placeholder_image():
+    """Reads the placeholder image and encodes it in Base64."""
+    try:
+        placeholder_path = os.path.join("assets", "no-image.png")
+        with open(placeholder_path, "rb") as f:
+            img_bytes = f.read()
+        img_b64 = base64.b64encode(img_bytes).decode()
+        return f"data:image/png;base64,{img_b64}"
+    except Exception:
+        return ""
+
 def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Displays the product search, filter, and a visual gallery of products."""
+    """Displays the product search, filter, and a responsive grid of product cards."""
+    # 1. Filters
+    search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input")
+    st.session_state.pos_search = search_query
 
-    with st.container(border=False):
-        # 1. Filters
-        search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input")
-        st.session_state.pos_search = search_query
+    all_categories = product_mgr.get_all_category_items("ProductCategories")
+    cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
+    cat_options["ALL"] = "Tất cả danh mục"
+    selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category')
+    st.divider()
 
-        all_categories = product_mgr.get_all_category_items("ProductCategories")
-        cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
-        cat_options["ALL"] = "Tất cả danh mục"
-        selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category')
-        st.divider()
+    # 2. Product Data Fetching
+    branch_products = product_mgr.get_listed_products_for_branch(branch_id)
+    branch_inventory = inventory_mgr.get_inventory_by_branch(branch_id)
 
-        # 2. Product Listing
-        branch_products = product_mgr.get_listed_products_for_branch(branch_id)
-        branch_inventory = inventory_mgr.get_inventory_by_branch(branch_id)
+    # 3. Product Filtering
+    filtered_products = [p for p in branch_products if (search_query.lower() in p['name'].lower() or search_query.lower() in p.get('sku', '').lower())]
+    if selected_cat != "ALL":
+        filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
 
-        filtered_products = [p for p in branch_products if (search_query.lower() in p['name'].lower() or search_query.lower() in p.get('sku', '').lower())]
-        if selected_cat != "ALL":
-            filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
+    # 4. Grid Rendering
+    if not filtered_products:
+        st.info("Không tìm thấy sản phẩm phù hợp.")
+    else:
+        placeholder_data_uri = get_placeholder_image()
+        product_cards_html = []
 
-        if not filtered_products:
-            st.info("Không tìm thấy sản phẩm phù hợp.")
-        else:
-            cols = st.columns(3)
-            for i, p in enumerate(filtered_products):
-                col = cols[i % 3]
-                sku = p.get('sku')
-                if not sku: continue
+        for p in filtered_products:
+            sku = p.get('sku')
+            if not sku: continue
 
-                stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
+            stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
+            if stock_quantity <= 0: continue
 
-                if stock_quantity > 0:
-                    with col.container(border=True, height=360):
-                        # FIX: Load image data directly instead of a URL
-                        image_id = p.get('image_id')
-                        if image_id and product_mgr.image_handler:
-                            image_data = product_mgr.image_handler.load_drive_image(image_id)
-                        else:
-                            image_data = "assets/no-image.png" # Fallback to placeholder path
-                        st.image(image_data, use_column_width=True)
+            # --- Image Handling ---
+            image_id = p.get('image_id')
+            image_data_uri = placeholder_data_uri
+            if image_id and product_mgr.image_handler:
+                image_bytes = product_mgr.image_handler.load_drive_image(image_id)
+                if image_bytes:
+                    image_b64 = base64.b64encode(image_bytes).decode()
+                    image_data_uri = f"data:image/jpeg;base64,{image_b64}"
 
-                        render_sub_header(p['name'])
+            # --- Price Handling ---
+            selling_price = p.get('selling_price', 0)
+            base_price = p.get('base_price')
+            price_html = f"<div class='product-card-price'>{format_currency(selling_price, 'đ')}</div>"
+            if base_price and base_price > selling_price:
+                price_html = f"""
+                <div class='product-card-price'>
+                    {format_currency(selling_price, 'đ')}
+                    <span class='product-card-price-old'>{format_currency(base_price, 'đ')}</span>
+                </div>
+                """
 
-                        selling_price = p.get('selling_price', 0)
-                        base_price = p.get('base_price')
+            # --- Build HTML Card ---
+            card_html = f"""
+            <div class="product-card">
+                <div class="product-card-image-wrapper">
+                    <img src="{image_data_uri}" class="product-card-image" alt="{p['name']}">
+                </div>
+                <div class="product-card-body">
+                    <h3 class="product-card-title">{p['name']}</h3>
+                    {price_html}
+                    <div class="product-card-stock">Tồn kho: {format_number(stock_quantity)}</div>
+                    <a href="?add_to_cart={sku}" class="product-card-add-button">➕ Thêm</a>
+                </div>
+            </div>
+            """
+            product_cards_html.append(card_html)
 
-                        price_html = f"<span style='color: #D22B2B; font-weight: bold;'>{format_currency(selling_price, 'đ')}</span>"
-                        if base_price and base_price > selling_price:
-                            price_html += f" <span style='text-decoration: line-through; color: grey; font-size: 0.9em;'>{format_currency(base_price, 'đ')}</span>"
-                        st.markdown(price_html, unsafe_allow_html=True)
-
-                        st.caption(f"Tồn kho: {format_number(stock_quantity)}")
-
-                        if st.button("➕ Thêm", key=f"add_{sku}", use_container_width=True, type="primary"):
-                            pos_mgr.add_item_to_cart(branch_id, p, stock_quantity)
-                            st.rerun()
+        grid_html = f"<div class='product-grid'>{'' .join(product_cards_html)}</div>"
+        st.markdown(grid_html, unsafe_allow_html=True)
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
     """Displays the items currently in the cart."""
@@ -87,23 +118,21 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
         with st.container(border=True):
             col_img, col_details = st.columns([1, 4])
             with col_img:
-                # FIX: Load image data directly instead of a URL
                 image_id = item.get('image_id')
+                image_data = "assets/no-image.png" # Fallback path
                 if image_id and product_mgr.image_handler:
-                    image_data = product_mgr.image_handler.load_drive_image(image_id)
-                else:
-                    image_data = "assets/no-image.png" # Fallback to placeholder path
+                    loaded_data = product_mgr.image_handler.load_drive_image(image_id)
+                    if loaded_data:
+                        image_data = loaded_data
                 st.image(image_data, width=60)
 
             with col_details:
                 st.markdown(f"**{item['name']}** (`{sku}`)")
-
                 price_col, qty_col = st.columns([2,1])
                 with price_col:
                     st.markdown(f"Thành tiền: **{format_currency(item['line_total_after_auto_discount'], 'đ')}**")
                     if item['auto_discount_applied'] > 0:
                         st.markdown(f"<small style='color: green; text-decoration: line-through;'>*Cũ: {format_currency(item['original_line_total'], 'đ')}*</small>", unsafe_allow_html=True)
-
                 with qty_col:
                     q_c1, q_c2, q_c3 = st.columns([1,1,1])
                     if q_c1.button("−", key=f"dec_{sku}", use_container_width=True):
@@ -151,7 +180,6 @@ def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
 def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
     render_section_header("Xác nhận đơn hàng")
     st.write("Vui lòng kiểm tra lại thông tin trước khi hoàn tất.")
-
     st.markdown(f"- **Tổng cộng:** {format_number(len(cart_state['items']))} loại sản phẩm")
     st.markdown(f"- **Tổng tiền hàng:** {format_currency(cart_state['subtotal'], 'đ')}")
     total_discount = cart_state['total_auto_discount'] + cart_state.get('total_manual_discount', 0)
@@ -182,14 +210,16 @@ def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
 
 # --- Main Page Rendering ---
 def render_pos_page(pos_mgr):
-    render_page_title("Bán hàng tại quầy (POS)") # Sử dụng hàm mới
+    render_page_title("Bán hàng tại quầy (POS)")
 
+    # --- Initialize Managers ---
     auth_mgr = st.session_state.auth_mgr
     branch_mgr = st.session_state.branch_mgr
     product_mgr = st.session_state.product_mgr
     inventory_mgr = st.session_state.inventory_mgr
     customer_mgr = st.session_state.customer_mgr
 
+    # --- Branch Selection ---
     user_info = auth_mgr.get_current_user_info()
     allowed_branches_map = auth_mgr.get_allowed_branches_map()
     if not allowed_branches_map:
@@ -202,17 +232,34 @@ def render_pos_page(pos_mgr):
 
     initialize_pos_state(selected_branch_id)
 
-    branch_products = product_mgr.get_listed_products_for_branch(selected_branch_id)
+    # --- Add to Cart from URL Param ---
+    if "add_to_cart" in st.query_params:
+        sku_to_add = st.query_params["add_to_cart"]
+        # Use a more efficient way to find the product if possible
+        all_branch_products = product_mgr.get_listed_products_for_branch(selected_branch_id)
+        product_to_add = next((p for p in all_branch_products if p.get('sku') == sku_to_add), None)
+        
+        if product_to_add:
+            branch_inventory = inventory_mgr.get_inventory_by_branch(selected_branch_id)
+            stock_quantity = branch_inventory.get(sku_to_add, {}).get('stock_quantity', 0)
+            pos_mgr.add_item_to_cart(selected_branch_id, product_to_add, stock_quantity)
+            st.toast(f"Đã thêm '{product_to_add['name']}' vào giỏ hàng!", icon="🛒")
 
+        st.query_params.clear()
+        st.rerun()
+
+    # --- Cart Calculation ---
     cart_state = pos_mgr.calculate_cart_state(
         cart_items=st.session_state.get('pos_cart', {}),
         customer_id=st.session_state.get('pos_customer', "-"),
         manual_discount_input=st.session_state.get('pos_manual_discount', {"type": "PERCENT", "value": 0})
     )
 
+    # --- Page Layout ---
     main_col, order_col = st.columns([0.6, 0.4])
 
     with main_col:
+        branch_products = product_mgr.get_listed_products_for_branch(selected_branch_id)
         tab_gallery, tab_cart = st.tabs([f"Thư viện Sản phẩm ({format_number(len(branch_products))})", f"Đơn hàng ({format_number(cart_state['total_items'])})"])
         with tab_gallery:
             render_product_gallery(pos_mgr, product_mgr, inventory_mgr, selected_branch_id)
