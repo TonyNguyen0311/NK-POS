@@ -98,6 +98,11 @@ class ReportManager:
                     "message": "Không tìm thấy mục tồn kho nào cho chi nhánh đã chọn trong cơ sở dữ liệu."
                 }
 
+            # DEBUG: Return the first inventory item found to inspect its structure
+            if raw_inventory_docs:
+                first_item_data = raw_inventory_docs[0].to_dict()
+                return {"success": False, "message": f"DEBUG_INVENTORY_ITEM: {first_item_data}"}
+
             inventory_list = []
             total_inventory_value = 0
             total_inventory_items = 0
@@ -105,8 +110,7 @@ class ReportManager:
 
             for item_doc in raw_inventory_docs:
                 item_data = item_doc.to_dict()
-                composite_id = item_doc.id
-                product_id = composite_id.split('_BR-')[0]
+                product_id = item_data.get('product_id')
                 quantity = item_data.get('quantity', 0)
 
                 if product_id in product_details:
@@ -124,7 +128,7 @@ class ReportManager:
                     total_inventory_value += item_value
                     total_inventory_items += quantity
                 else:
-                    unmatched_product_ids.append(composite_id)
+                    unmatched_product_ids.append(product_id)
 
             if not inventory_list:
                 if unmatched_product_ids:
