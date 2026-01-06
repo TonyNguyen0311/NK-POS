@@ -1,4 +1,5 @@
 
+import logging
 from datetime import datetime, timedelta
 from google.cloud.firestore import Query
 import pandas as pd
@@ -75,12 +76,13 @@ class ReportManager:
             category_profit_df = category_profit_df.sort_values(by='total_profit', ascending=False)
             return {"success": True, "data": {'product_profit_df': profit_df, 'category_profit_df': category_profit_df}}
         except Exception as e:
-            print(f"Lỗi khi tạo báo cáo phân tích lợi nhuận: {e}")
+            logging.error(f"Lỗi khi tạo báo cáo phân tích lợi nhuận: {e}")
             return {"success": False, "message": str(e)}
 
     def get_inventory_report(self, branch_ids: list):
         """
-        Tạo báo cáo tồn kho chi tiết cho các chi nhánh được chọn, với thông báo lỗi rõ ràng hơn.
+        Tạo báo cáo tồn kho chi tiết, sử dụng giá vốn bình quân gia quyền (average_cost)
+        trực tiếp từ collection 'inventory'.
         """
         try:
             products_snapshot = self.products_collection.stream()
@@ -89,71 +91,53 @@ class ReportManager:
             inventory_query = self.inventory_collection
             if branch_ids:
                 inventory_query = inventory_query.where('branch_id', 'in', branch_ids)
-            raw_inventory_docs = list(inventory_query.stream())
+            inventory_docs = list(inventory_query.stream())
 
-            if not raw_inventory_docs:
-                return {
-                    "success": False,
-                    "data": None,
-                    "message": "Không tìm thấy mục tồn kho nào cho chi nhánh đã chọn trong cơ sở dữ liệu."
-                }
+            if not inventory_docs:
+                return {"success": True, "data": None, "message": "Không có dữ liệu tồn kho cho chi nhánh đã chọn."}
 
             inventory_list = []
             total_inventory_value = 0
             total_inventory_items = 0
-            unmatched_product_ids = []
 
-            for item_doc in raw_inventory_docs:
+            for item_doc in inventory_docs:
                 item_data = item_doc.to_dict()
-                product_id = item_data.get('sku')
+                sku = item_data.get('sku')
                 quantity = item_data.get('stock_quantity', 0)
+                
+                average_cost = item_data.get('average_cost', 0)
+                item_value = average_cost * quantity
 
-                if product_id in product_details:
-                    # DEBUG: Return the product data to inspect its structure
-                    return {"success": False, "message": f"DEBUG_PRODUCT_ITEM: {product_details[product_id]}"}
+                product_info = product_details.get(sku, {})
 
-                    product = product_details[product_id]
-                    cost_price = product.get('cost_price', 0)
-                    item_value = cost_price * quantity
-                    inventory_list.append({
-                        'product_id': product_id,
-                        'product_name': product.get('name', 'N/A'),
-                        'branch_id': item_data.get('branch_id'),
-                        'quantity': quantity,
-                        'cost_price': cost_price,
-                        'total_value': item_value
-                    })
-                    total_inventory_value += item_value
-                    total_inventory_items += quantity
-                else:
-                    unmatched_product_ids.append(product_id)
-
+                inventory_list.append({
+                    'product_id': sku,
+                    'product_name': product_info.get('name', 'N/A'),
+                    'branch_id': item_data.get('branch_id'),
+                    'quantity': quantity,
+                    'average_cost': average_cost,
+                    'total_value': item_value
+                })
+                total_inventory_value += item_value
+                total_inventory_items += quantity
+            
             if not inventory_list:
-                if unmatched_product_ids:
-                    return {
-                        "success": False,
-                        "data": None,
-                        "message": f"Đã tìm thấy {len(unmatched_product_ids)} mục tồn kho nhưng không thể liên kết với sản phẩm. Có thể các sản phẩm (IDs: {', '.join(set(unmatched_product_ids))}) đã bị xóa. Vui lòng kiểm tra lại."
-                    }
-                else:
-                     return { "success": False, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
+                 return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
 
             inventory_df = pd.DataFrame(inventory_list)
-            top_products_df = inventory_df.groupby(['product_id', 'product_name']) \
-                                          .agg(total_quantity=('quantity', 'sum'), total_value=('total_value', 'sum')) \
-                                          .sort_values(by='total_value', ascending=False) \
-                                          .reset_index()
+            top_products_df = inventory_df.sort_values(by='total_value', ascending=False).head(10)
             low_stock_df = inventory_df[inventory_df['quantity'] < 10].sort_values(by='quantity')
+
             report_data = {
                 'total_inventory_value': total_inventory_value,
                 'total_inventory_items': total_inventory_items,
                 'inventory_details_df': inventory_df,
-                'top_products_by_value_df': top_products_df.head(10),
+                'top_products_by_value_df': top_products_df,
                 'low_stock_items_df': low_stock_df
             }
             return { "success": True, "data": report_data }
         except Exception as e:
-            print(f"Lỗi khi tạo báo cáo tồn kho: {e}")
+            logging.error(f"Lỗi khi tạo báo cáo tồn kho: {e}")
             if "index" in str(e).lower():
                 return { "success": False, "message": f"Lỗi truy vấn Firestore, có thể bạn thiếu index. Chi tiết: {e}" }
             return { "success": False, "message": str(e) }
@@ -210,7 +194,7 @@ class ReportManager:
             }
             return True, report, "Tạo báo cáo thành công"
         except Exception as e:
-            print(f"Lỗi khi lấy báo cáo doanh thu: {e}")
+            logging.error(f"Lỗi khi lấy báo cáo doanh thu: {e}")
             return False, None, str(e)
 
     def get_profit_loss_statement(self, start_date: datetime, end_date: datetime, branch_id: str = None):
@@ -297,10 +281,10 @@ class ReportManager:
                 total_cost_in_period += monthly_cost
             return total_cost_in_period
         except (ValueError, TypeError, KeyError) as e:
-            print(f"Error calculating amortization for entry {cost_entry.get('id')}: {e}")
+            logging.error(f"Error calculating amortization for entry {cost_entry.get('id')}: {e}")
             return 0
 
 # Apply decorators after the class is defined
 ReportManager.get_profit_loss_statement = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_loss_statement)
-ReportManager.get_inventory_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_inventory_report)
+ReportManager.get_inventory_report = st.cache_data(ttl=300, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_inventory_report)
 ReportManager.get_profit_analysis_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_analysis_report)
