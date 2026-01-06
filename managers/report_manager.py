@@ -21,9 +21,6 @@ class ReportManager:
         self.categories_collection = self.db.collection('categories')
 
     def get_profit_analysis_report(self, start_date: datetime, end_date: datetime, branch_ids: list):
-        """
-        Phân tích lợi nhuận chi tiết theo sản phẩm và danh mục.
-        """
         try:
             products_snapshot = self.products_collection.stream()
             product_details = {p.id: p.to_dict() for p in products_snapshot}
@@ -85,9 +82,18 @@ class ReportManager:
         trực tiếp từ collection 'inventory'.
         """
         try:
+            # 1. Lấy thông tin sản phẩm và chuyển đổi timestamps
             products_snapshot = self.products_collection.stream()
-            product_details = {p.id: p.to_dict() for p in products_snapshot}
+            product_details = {}
+            for p in products_snapshot:
+                p_data = p.to_dict()
+                # Chuyển đổi bất kỳ đối tượng datetime nào (bao gồm DatetimeWithNanoseconds) thành chuỗi
+                for key, value in p_data.items():
+                    if isinstance(value, datetime):
+                        p_data[key] = value.isoformat()
+                product_details[p.id] = p_data
 
+            # 2. Lấy dữ liệu tồn kho cho các chi nhánh được chọn
             inventory_query = self.inventory_collection
             if branch_ids:
                 inventory_query = inventory_query.where('branch_id', 'in', branch_ids)
@@ -96,6 +102,7 @@ class ReportManager:
             if not inventory_docs:
                 return {"success": True, "data": None, "message": "Không có dữ liệu tồn kho cho chi nhánh đã chọn."}
 
+            # 3. Xây dựng danh sách tồn kho chi tiết
             inventory_list = []
             total_inventory_value = 0
             total_inventory_items = 0
@@ -124,6 +131,7 @@ class ReportManager:
             if not inventory_list:
                  return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
 
+            # 4. Tạo các DataFrame cho báo cáo
             inventory_df = pd.DataFrame(inventory_list)
             top_products_df = inventory_df.sort_values(by='total_value', ascending=False).head(10)
             low_stock_df = inventory_df[inventory_df['quantity'] < 10].sort_values(by='quantity')
@@ -137,7 +145,7 @@ class ReportManager:
             }
             return { "success": True, "data": report_data }
         except Exception as e:
-            logging.error(f"Lỗi khi tạo báo cáo tồn kho: {e}")
+            logging.error(f"Lỗi khi tạo báo cáo tồn kho: {e}", exc_info=True)
             if "index" in str(e).lower():
                 return { "success": False, "message": f"Lỗi truy vấn Firestore, có thể bạn thiếu index. Chi tiết: {e}" }
             return { "success": False, "message": str(e) }
