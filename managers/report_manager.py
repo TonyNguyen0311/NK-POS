@@ -126,7 +126,7 @@ class ReportManager:
                     'product_name': product_info.get('name', 'N/A'),
                     'branch_id': item_data.get('branch_id'),
                     'quantity': quantity,
-                    'average_cost': average_cost,
+                    'cost_price': average_cost,
                     'total_value': item_value
                 })
                 total_inventory_value += item_value
