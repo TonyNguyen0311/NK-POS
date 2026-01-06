@@ -109,6 +109,9 @@ class ReportManager:
                 quantity = item_data.get('stock_quantity', 0)
 
                 if product_id in product_details:
+                    # DEBUG: Return the product data to inspect its structure
+                    return {"success": False, "message": f"DEBUG_PRODUCT_ITEM: {product_details[product_id]}"}
+
                     product = product_details[product_id]
                     cost_price = product.get('cost_price', 0)
                     item_value = cost_price * quantity
