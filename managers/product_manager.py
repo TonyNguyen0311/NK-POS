@@ -169,8 +169,9 @@ class ProductManager:
             return []
         try:
             all_products = self.get_all_products(active_only=True)
-            branch_prices = self.price_mgr.get_prices_for_branch(branch_id)
-            branch_price_map = {p['sku']: p for p in branch_prices if p.get('is_active')}
+            # FIX: Called the correct method name 'get_active_prices_for_branch'
+            branch_prices = self.price_mgr.get_active_prices_for_branch(branch_id)
+            branch_price_map = {p['sku']: p for p in branch_prices}
             
             listed_products = []
             for prod in all_products:
