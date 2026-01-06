@@ -5,6 +5,7 @@ from datetime import datetime
 from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector, inject_custom_css
 from utils.formatters import format_currency, format_number
 import os
+from urllib.parse import quote
 
 # --- State Management ---
 def initialize_pos_state(branch_id):
@@ -18,38 +19,52 @@ def initialize_pos_state(branch_id):
         st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
         st.session_state.current_pos_branch_key = branch_key
 
-# --- UI Rendering Functions ---
+# --- UI Rendering & Asset Functions (Optimized for Performance) ---
 
-@st.cache_data(show_spinner=False)
-def get_image_as_base64(image_bytes):
-    """Converts image bytes to a base64 encoded string."""
-    return base64.b64encode(image_bytes).decode()
-
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def get_placeholder_image_b64():
-    """Reads the placeholder image and returns its base64 representation."""
+    """Reads the placeholder image and returns its base64 representation. Cached for performance."""
     try:
         placeholder_path = os.path.join("assets", "no-image.png")
         with open(placeholder_path, "rb") as f:
-            return get_image_as_base64(f.read())
+            return base64.b64encode(f.read()).decode()
     except Exception:
         return None
 
+@st.cache_data(show_spinner=False, ttl=600)
+def get_product_image_b64(_product_mgr, image_id):
+    """Loads image from GDrive, converts to Base64, and caches the result based on image_id."""
+    if not image_id or not _product_mgr.image_handler:
+        return None
+    try:
+        img_bytes = _product_mgr.image_handler.load_drive_image(image_id)
+        if img_bytes:
+            # Basic MIME type detection
+            mime_type = "image/png" if img_bytes.startswith(b'\x89PNG') else "image/jpeg"
+            return f"data:{mime_type};base64,{base64.b64encode(img_bytes).decode()}"
+    except Exception as e:
+        st.error(f"Lỗi tải ảnh: {e}") # Log error instead of crashing
+    return None
+
 def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Displays a fully responsive product grid using HTML/CSS."""
+    """Displays a fully responsive product grid using a single st.markdown with CSS Grid."""
     render_section_header("Thư viện Sản phẩm")
     
-    # Filters
-    search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input", label_visibility="collapsed")
-    st.session_state.pos_search = search_query
-
-    all_categories = product_mgr.get_all_category_items("ProductCategories")
-    cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
-    cat_options["ALL"] = "Tất cả danh mục"
-    selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category')
+    # --- Filter Bar ---
+    filter_col1, filter_col2 = st.columns([0.6, 0.4])
+    with filter_col1:
+        search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input", label_visibility="collapsed", placeholder="Tìm sản phẩm...")
+        st.session_state.pos_search = search_query
+    
+    with filter_col2:
+        all_categories = product_mgr.get_all_category_items("ProductCategories")
+        cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
+        cat_options["ALL"] = "Tất cả danh mục"
+        selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category', label_visibility="collapsed")
+    
     st.divider()
 
-    # Product Data Fetching & Filtering
+    # --- Product Data Fetching & Filtering ---
     branch_products = product_mgr.get_listed_products_for_branch(branch_id)
     branch_inventory = inventory_mgr.get_inventory_by_branch(branch_id)
 
@@ -57,48 +72,41 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
     if selected_cat != "ALL":
         filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
 
-    # Grid Rendering
+    # --- Grid Rendering ---
     if not filtered_products:
-        st.info("Không tìm thấy sản phẩm phù hợp.")
+        st.info("Không tìm thấy sản phẩm nào phù hợp với lựa chọn của bạn.")
     else:
-        placeholder_b64 = get_placeholder_image_b64()
-        cols = st.columns(4) # You can adjust the number of columns
-        
-        for i, p in enumerate(filtered_products):
+        placeholder_b64 = f"data:image/png;base64,{get_placeholder_image_b64()}"
+        product_cards_html = []
+
+        for p in filtered_products:
             sku = p.get('sku')
             if not sku: continue
 
             stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
             if stock_quantity <= 0: continue
-            
-            with cols[i % 4]:
-                # --- Get Image ---
-                image_b64 = placeholder_b64
-                image_id = p.get('image_id')
-                if image_id and product_mgr.image_handler:
-                    img_bytes = product_mgr.image_handler.load_drive_image(image_id)
-                    if img_bytes:
-                        image_b64 = get_image_as_base64(img_bytes)
-                
-                image_src = f"data:image/png;base64,{image_b64}" if image_b64 else ""
 
-                # --- Get Price ---
-                selling_price = p.get('selling_price', 0)
-                
-                # --- Build HTML for one card ---
-                st.markdown(f'''
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="{image_src}" class="product-image">
-                    </div>
-                    <div class="product-details">
-                        <div class="product-title">{p['name']}</div>
-                        <div class="product-price">{format_currency(selling_price, 'đ')}</div>
-                        <div class="product-stock">Tồn kho: {format_number(stock_quantity)}</div>
-                        <a href="?add_to_cart={sku}" target="_self" class="add-to-cart-btn">➕ Thêm vào giỏ</a>
-                    </div>
+            image_src = get_product_image_b64(product_mgr, p.get('image_id')) or placeholder_b64
+            selling_price = p.get('selling_price', 0)
+            safe_sku = quote(sku)
+
+            card_html = f'''
+            <div class="product-card">
+                <div class="product-image-container">
+                    <img src="{image_src}" class="product-image" alt="{p["name"]}">
                 </div>
-                ''', unsafe_allow_html=True)
+                <div class="product-details">
+                    <div class="product-title">{p['name']}</div>
+                    <div class="product-price">{format_currency(selling_price, 'đ')}</div>
+                    <div class="product-stock">Tồn kho: {format_number(stock_quantity)}</div>
+                    <a href="?add_to_cart={safe_sku}" target="_self" class="add-to-cart-btn">➕ Thêm vào giỏ</a>
+                </div>
+            </div>
+            '''
+            product_cards_html.append(card_html)
+
+        gallery_html = "".join(product_cards_html)
+        st.markdown(f"<div class='product-gallery'>{gallery_html}</div>", unsafe_allow_html=True)
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
     """Displays the items currently in the cart."""
@@ -113,15 +121,11 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
             with st.container():
                 col_img, col_details = st.columns([1, 4])
                 with col_img:
-                    # Optimized image loading for cart
-                    image_id = item.get('image_id')
-                    image_data = "assets/no-image.png" 
-                    if image_id and product_mgr.image_handler:
-                         loaded_data = product_mgr.image_handler.load_drive_image(image_id)
-                         if loaded_data:
-                            image_data = loaded_data
-                    st.image(image_data, width=60)
-
+                    image_src = get_product_image_b64(product_mgr, item.get('image_id'))
+                    if image_src:
+                         st.image(image_src, width=60)
+                    else:
+                         st.image("assets/no-image.png", width=60)
 
                 with col_details:
                     st.markdown(f"**{item['name']}** (`{sku}`)")
@@ -206,20 +210,23 @@ def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
         st.rerun()
 
 def handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Checks for 'add_to_cart' in URL query_params and handles the action."""
+    """Checks for 'add_to_cart' in URL query_params and handles the action safely."""
     if 'add_to_cart' in st.query_params:
         sku_to_add = st.query_params['add_to_cart']
         
-        # Find the product and its stock quantity
         product = product_mgr.get_product_by_id(sku_to_add)
         stock_quantity = inventory_mgr.get_inventory_by_branch(branch_id).get(sku_to_add, {}).get('stock_quantity', 0)
 
         if product and stock_quantity > 0:
             pos_mgr.add_item_to_cart(branch_id, product, stock_quantity)
             st.toast(f"Đã thêm '{product['name']}' vào giỏ!", icon="🛒")
-        
-        # Clean up URL and rerun
-        st.query_params.clear()
+        else:
+            st.toast("Sản phẩm không hợp lệ hoặc đã hết hàng.", icon="⚠️")
+
+        # Safely remove only the 'add_to_cart' param and rerun
+        params = st.query_params.to_dict()
+        params.pop('add_to_cart', None)
+        st.query_params.from_dict(params)
         st.rerun()
 
 # --- Main Page Rendering ---

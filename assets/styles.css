@@ -1,114 +1,143 @@
-/* General Styles */
-body {
-    /* Add general body styles here */
-}
 
+/* ==========================================================================
+   NK-POS Global & POS Product Gallery Styles
+   Version: 2.0
+   Author: Gemini
+   ========================================================================== */
+
+/* --- Global & Utils --- */
 .sub-header {
-    font-size: 1.2rem;
-    font-weight: bold;
-    margin-top: 1rem;
-    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 1rem;
+    color: #1e293b;
 }
 
-/* Product Grid Styles */
-.product-grid {
+/* --- Filter Bar --- */
+/* (Container for search & select is handled by Streamlit, no specific class needed yet) */
+
+
+/* --- Product Gallery (Grid Layout) --- */
+.product-gallery {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 1rem;
+    /* Mobile First: 2 columns for screens > 320px */
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px; /* Space between cards */
+    padding-top: 8px;
 }
 
+/* Tablet Breakpoint: 3 columns */
+@media (min-width: 640px) {
+    .product-gallery {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* Desktop Breakpoint: 4 columns */
+@media (min-width: 1024px) {
+    .product-gallery {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+/* --- Product Card --- */
 .product-card {
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 1rem;
+    border: 1px solid #e2e8f0; /* Slate 200 */
+    border-radius: 12px;
+    background-color: #ffffff;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    transition: box-shadow 0.3s ease;
+    overflow: hidden; /* Ensures content respects border-radius */
+    transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+    height: 100%; /* Ensure cards in a row stretch to the same height */
 }
 
 .product-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(30, 41, 59, 0.08); /* Subtle, modern shadow */
 }
 
-.product-card-image-wrapper {
+/* Image Container: Enforces a consistent 1:1 aspect ratio */
+.product-image-container {
     width: 100%;
-    padding-top: 100%; /* 1:1 Aspect Ratio */
-    position: relative;
+    aspect-ratio: 1 / 1;
+    background-color: #f8fafc; /* A very light grey for loading background */
     overflow: hidden;
-    border-radius: 4px;
-    margin-bottom: 0.75rem;
 }
 
-.product-card-image {
-    position: absolute;
-    top: 0;
-    left: 0;
+.product-image {
     width: 100%;
     height: 100%;
-    object-fit: cover; /* Changed from contain to cover */
+    object-fit: cover; /* Ensures image covers the area without distortion */
 }
 
-.product-card-body {
-    flex-grow: 1;
+/* Details Section of the Card */
+.product-details {
+    padding: 12px;
     display: flex;
     flex-direction: column;
+    flex-grow: 1; /* Allows this section to fill available space */
 }
 
-.product-card-title {
-    font-size: 1rem;
-    font-weight: bold;
-    margin-bottom: 0.5rem;
-    /* Clamp title to 2 lines */
+.product-title {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5; /* 24px */
+    color: #1e293b; /* Slate 800 */
+    margin-bottom: 4px;
+
+    /* Clamp title to a maximum of 2 lines */
+    min-height: 48px; /* Explicitly set height for 2 lines to prevent layout shifts */
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
-    height: 2.5em; /* Fallback for browsers not supporting -webkit-line-clamp */
 }
 
-.product-card-price {
-    font-size: 1.1rem;
-    font-weight: bold;
-    color: #D22B2B;
-    margin-bottom: 0.25rem;
+.product-price {
+    font-size: 17px;
+    font-weight: 700;
+    color: #D22B2B; /* Brand red */
+    margin-bottom: 8px;
 }
 
-.product-card-price-old {
-    text-decoration: line-through;
-    color: grey;
-    font-size: 0.9em;
-    margin-left: 0.5em;
+.product-stock {
+    font-size: 14px;
+    color: #64748b; /* Slate 500 */
+    margin-bottom: 16px;
+    flex-grow: 1; /* Pushes the 'Add to cart' button to the bottom */
 }
 
-.product-card-stock {
-    font-size: 0.9rem;
-    color: #555;
-    margin-bottom: 0.75rem;
-    flex-grow: 1; /* Pushes the button to the bottom */
-}
-
-.product-card-add-button {
-    display: block;
+/* 'Add to Cart' Action Button */
+.add-to-cart-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
     text-align: center;
-    background-color: #28a745; /* Green color for add action */
+    background-color: #0870F7; /* A strong, modern blue */
     color: white;
-    padding: 0.6rem 1rem;
-    border-radius: 6px;
+    padding: 10px 16px;
+    border-radius: 8px;
     text-decoration: none;
-    transition: background-color 0.3s ease, transform 0.2s ease;
-    font-weight: bold;
+    font-weight: 600;
+    font-size: 14px;
     border: none;
+    cursor: pointer;
+    min-height: 44px; /* Accessibility: Ensures a large enough tap target */
+    transition: background-color 0.2s ease;
 }
 
-.product-card-add-button:hover {
-    background-color: #218838; /* Darker green on hover */
-    color: white; /* Ensure text remains white */
-    transform: translateY(-2px);
+.add-to-cart-btn:hover {
+    background-color: #0059c5; /* Darker blue on hover */
+    color: white; /* Keep text color consistent */
     text-decoration: none;
 }
 
-.product-card-add-button:active {
-    transform: translateY(0);
+/* Accessibility: Add a clear focus ring */
+.add-to-cart-btn:focus-visible {
+    outline: 3px solid #60a5fa; /* A lighter blue halo */
+    outline-offset: 1px;
 }
