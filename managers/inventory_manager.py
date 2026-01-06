@@ -43,7 +43,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
             current_total_value = current_quantity * current_avg_cost
             adjustment_value = delta * purchase_price
             new_avg_cost = (current_total_value + adjustment_value) / new_quantity if new_quantity > 0 else 0
-        # For negative delta (cancellations/adjustments), the cost basis doesn't change from new purchases
         
         if new_quantity < 0:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku}. Giao dịch thất bại.")
@@ -66,7 +65,7 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
             'sku': sku,
             'branch_id': voucher_data['branch_id'],
             'user_id': voucher_data['created_by'],
-            'reason': voucher_data['type'], # e.g., GOODS_RECEIPT, ADJUSTMENT
+            'reason': voucher_data['type'], 
             'delta': delta,
             'quantity_before': current_quantity,
             'quantity_after': new_quantity,
@@ -77,7 +76,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         })
         processed_transaction_ids.append(trans_id)
     
-    # 3. Update the voucher with the IDs of the transactions it created
     transaction.update(voucher_ref, {'transaction_ids': processed_transaction_ids})
 
 def hash_inventory_manager(manager):
@@ -91,7 +89,7 @@ class InventoryManager:
         self.transactions_col = self.db.collection('inventory_transactions')
 
     def _clear_caches(self, branch_id: str):
-        st.cache_data.clear() # Clear all caches for simplicity
+        st.cache_data.clear()
 
     def create_goods_receipt(self, branch_id, user_id, items, supplier, notes, receipt_date):
         if not items:
@@ -99,19 +97,12 @@ class InventoryManager:
         
         voucher_id = f"VGR-{uuid.uuid4().hex[:10].upper()}"
         voucher_ref = self.vouchers_col.document(voucher_id)
-        
         created_at = datetime.combine(receipt_date, datetime.now().time()).isoformat()
 
         voucher_data = {
-            'id': voucher_id,
-            'branch_id': branch_id,
-            'created_by': user_id,
-            'type': 'GOODS_RECEIPT',
-            'status': 'COMPLETED',
-            'created_at': created_at,
-            'notes': notes,
-            'supplier': supplier,
-            'items': items # Store items for display purposes
+            'id': voucher_id, 'branch_id': branch_id, 'created_by': user_id, 'type': 'GOODS_RECEIPT',
+            'status': 'COMPLETED', 'created_at': created_at, 'notes': notes, 'supplier': supplier,
+            'items': items
         }
 
         transaction = self.db.transaction()
@@ -120,14 +111,12 @@ class InventoryManager:
         return voucher_id
 
     def create_adjustment(self, branch_id, user_id, items, reason, notes, adjustment_date):
-        if not items:
-            raise ValueError("Phiếu điều chỉnh phải có ít nhất một sản phẩm.")
+        if not items: raise ValueError("Phiếu điều chỉnh phải có ít nhất một sản phẩm.")
 
         voucher_id = f"VADJ-{uuid.uuid4().hex[:10].upper()}"
         voucher_ref = self.vouchers_col.document(voucher_id)
         created_at = datetime.combine(adjustment_date, datetime.now().time()).isoformat()
 
-        # Prepare items with delta calculation
         items_with_delta = []
         for item in items:
             current_item_state = self.get_inventory_item(item['sku'], branch_id)
@@ -135,25 +124,15 @@ class InventoryManager:
             delta = item['actual_quantity'] - current_quantity
             if delta != 0:
                 items_with_delta.append({
-                    'sku': item['sku'],
-                    'quantity': delta, # This is the 'delta', not the final quantity
-                    'actual_quantity': item['actual_quantity'],
+                    'sku': item['sku'], 'quantity': delta, 'actual_quantity': item['actual_quantity'],
                     'quantity_before': current_quantity
                 })
         
-        if not items_with_delta:
-            logging.warning("No actual change in stock quantities for adjustment.")
-            return None
+        if not items_with_delta: return None
 
         voucher_data = {
-            'id': voucher_id,
-            'branch_id': branch_id,
-            'created_by': user_id,
-            'type': f'ADJUSTMENT_{reason.upper()}',
-            'status': 'COMPLETED',
-            'created_at': created_at,
-            'notes': notes,
-            'reason': reason,
+            'id': voucher_id, 'branch_id': branch_id, 'created_by': user_id, 'type': f'ADJUSTMENT_{reason.upper()}',
+            'status': 'COMPLETED', 'created_at': created_at, 'notes': notes, 'reason': reason,
             'items': items_with_delta 
         }
 
@@ -165,47 +144,26 @@ class InventoryManager:
     def cancel_voucher(self, voucher_id: str, user_id: str):
         original_voucher_ref = self.vouchers_col.document(voucher_id)
         original_voucher = original_voucher_ref.get()
-
-        if not original_voucher.exists:
-            raise FileNotFoundError("Không tìm thấy chứng từ gốc.")
-        
+        if not original_voucher.exists: raise FileNotFoundError("Không tìm thấy chứng từ gốc.")
         voucher_dict = original_voucher.to_dict()
-        if voucher_dict.get('status') == 'CANCELLED':
-            raise ValueError("Chứng từ này đã bị huỷ trước đó.")
+        if voucher_dict.get('status') == 'CANCELLED': raise ValueError("Chứng từ này đã bị huỷ trước đó.")
 
-        # Create reversal items
-        reversal_items = []
-        for item in voucher_dict['items']:
-            reversal_items.append({
-                'sku': item['sku'],
-                'quantity': -item['quantity'], # Reverse the delta
-                'purchase_price': item.get('purchase_price') # Keep original price for cost calculation reversal
-            })
+        reversal_items = [{'sku': item['sku'], 'quantity': -item['quantity'], 'purchase_price': item.get('purchase_price')} for item in voucher_dict['items']]
         
-        # Create the cancellation voucher
         cancellation_voucher_id = f"VCAN-{uuid.uuid4().hex[:10].upper()}"
         cancellation_voucher_ref = self.vouchers_col.document(cancellation_voucher_id)
         created_at = datetime.now().isoformat()
         
         cancellation_voucher_data = {
-            'id': cancellation_voucher_id,
-            'branch_id': voucher_dict['branch_id'],
-            'created_by': user_id,
-            'type': f"REVERSAL_{voucher_dict['type']}",
-            'status': 'COMPLETED',
-            'created_at': created_at,
-            'notes': f"Huỷ chứng từ {voucher_id}.",
-            'items': reversal_items,
-            'reverses_voucher_id': voucher_id
+            'id': cancellation_voucher_id, 'branch_id': voucher_dict['branch_id'], 'created_by': user_id,
+            'type': f"REVERSAL_{voucher_dict['type']}", 'status': 'COMPLETED', 'created_at': created_at,
+            'notes': f"Huỷ chứng từ {voucher_id}.", 'items': reversal_items, 'reverses_voucher_id': voucher_id
         }
         
-        # Use the same transactional function to process the reversal
         transaction = self.db.transaction()
         _create_voucher_and_transactions_transactional(transaction, self.db, cancellation_voucher_ref, cancellation_voucher_data, reversal_items)
 
-        # Mark the original voucher as cancelled
-        original_voucher_ref.update({'status': 'CANCELLED', 'cancelled_by': user_id, 'cancelled_at': created_at})
-
+        transaction.update(original_voucher_ref, {'status': 'CANCELLED', 'cancelled_by': user_id, 'cancelled_at': created_at})
         self._clear_caches(voucher_dict['branch_id'])
         return cancellation_voucher_id
 
@@ -215,6 +173,15 @@ class InventoryManager:
         doc = doc_ref.get()
         return doc.to_dict() if doc.exists else None
 
+    def get_inventory_by_branch(self, branch_id: str) -> dict:
+        try:
+            if not branch_id: return {}
+            docs = self.inventory_col.where('branch_id', '==', branch_id).stream()
+            return {doc.to_dict()['sku']: doc.to_dict() for doc in docs if 'sku' in doc.to_dict()}
+        except Exception as e:
+            logging.error(f"Error fetching inventory for branch '{branch_id}': {e}")
+            return {}
+
     def get_vouchers_by_branch(self, branch_id: str, limit: int = 100):
         if not branch_id: return []
         query = self.vouchers_col.where('branch_id', '==', branch_id).order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
@@ -223,3 +190,4 @@ class InventoryManager:
 # Caching for performance
 InventoryManager.get_inventory_item = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_item)
 InventoryManager.get_vouchers_by_branch = st.cache_data(ttl=120, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_vouchers_by_branch)
+InventoryManager.get_inventory_by_branch = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_by_branch)

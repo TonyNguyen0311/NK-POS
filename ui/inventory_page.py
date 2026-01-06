@@ -44,13 +44,13 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
 
     # --- Data Loading ---
     @st.cache_data(ttl=60)
-    def load_products_and_inventory(branch_id):
+    def load_data(branch_id):
         all_products = prod_mgr.get_all_products(active_only=False)
-        branch_inventory = inv_mgr.get_inventory_item.clear_cache_for_branch(branch_id) # Simplified
+        branch_inventory = inv_mgr.get_inventory_by_branch(branch_id)
         return all_products, branch_inventory
 
     with st.spinner("Đang tải dữ liệu sản phẩm và kho..."):
-        all_products, _ = load_products_and_inventory(selected_branch)
+        all_products, branch_inventory = load_data(selected_branch)
         product_map = {p['sku']: p for p in all_products if 'sku' in p}
         product_options = {p['sku']: f"{p['name']} ({p['sku']})" for p in all_products if 'sku' in p}
 
@@ -62,13 +62,32 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     # --- TAB 1: CURRENT INVENTORY ---
     with tab1:
         st.subheader(f"Tồn kho hiện tại của: {allowed_branches_map[selected_branch]}")
-        branch_inventory_data = inv_mgr.get_vouchers_by_branch.clear_cache_for_branch(selected_branch) # Simplified
-        if not branch_inventory_data:
+        if not branch_inventory:
             st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
         else:
-            # This part can be enhanced later to show a real-time summary
-            st.info("Sử dụng Lịch sử Chứng từ để xem chi tiết. Chức năng tóm tắt tồn kho đang được phát triển.")
-
+            inventory_list = []
+            for sku, inv_data in branch_inventory.items():
+                prod_info = product_map.get(sku, {})
+                inventory_list.append({
+                    'Tên sản phẩm': prod_info.get('name', f'Không rõ (SKU: {sku})'),
+                    'SKU': sku,
+                    'Số lượng': inv_data.get('stock_quantity', 0),
+                    'Giá vốn BQ': inv_data.get('average_cost', 0),
+                    'Giá trị Kho': inv_data.get('stock_quantity', 0) * inv_data.get('average_cost', 0)
+                })
+            
+            if inventory_list:
+                inventory_df = pd.DataFrame(inventory_list)
+                st.dataframe(
+                    inventory_df.style.format({
+                        'Số lượng': format_number,
+                        'Giá vốn BQ': lambda x: format_currency(x, 'VND'),
+                        'Giá trị Kho': lambda x: format_currency(x, 'VND')
+                    }),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                 st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
 
     # --- TAB 2: VOUCHER CREATION ---
     with tab2:
@@ -94,8 +113,8 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                 quantity = c2.number_input("Số lượng nhập", min_value=1, step=1, key="item_qty")
                 purchase_price = st.number_input("Giá nhập (trên 1 đơn vị)", min_value=0, step=1000, key="item_price")
             else: # Stock Adjustment
-                current_stock = inv_mgr.get_inventory_item(selected_sku, selected_branch)
-                current_qty = current_stock.get('stock_quantity', 0) if current_stock else 0
+                current_stock_item = inv_mgr.get_inventory_item(selected_sku, selected_branch)
+                current_qty = current_stock_item.get('stock_quantity', 0) if current_stock_item else 0
                 c2.info(f"Tồn hiện tại: {current_qty}")
                 quantity = st.number_input("Số lượng thực tế", min_value=0, step=1, key="item_qty")
 
