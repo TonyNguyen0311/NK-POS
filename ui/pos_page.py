@@ -53,9 +53,13 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
 
                 if stock_quantity > 0:
                     with col.container(border=True, height=360):
-                        # FIX: Use the correct method to get a temporary URL
-                        image_url = product_mgr.image_handler.get_temporary_download_url(p.get('image_id')) if p.get('image_id') and product_mgr.image_handler else "assets/no-image.png"
-                        st.image(image_url, use_column_width=True)
+                        # FIX: Load image data directly instead of a URL
+                        image_id = p.get('image_id')
+                        if image_id and product_mgr.image_handler:
+                            image_data = product_mgr.image_handler.load_drive_image(image_id)
+                        else:
+                            image_data = "assets/no-image.png" # Fallback to placeholder path
+                        st.image(image_data, use_column_width=True)
 
                         render_sub_header(p['name'])
 
@@ -83,9 +87,13 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
         with st.container(border=True):
             col_img, col_details = st.columns([1, 4])
             with col_img:
-                # FIX: Use the correct method to get a temporary URL
-                image_url = product_mgr.image_handler.get_temporary_download_url(item.get('image_id')) if item.get('image_id') and product_mgr.image_handler else "assets/no-image.png"
-                st.image(image_url, width=60)
+                # FIX: Load image data directly instead of a URL
+                image_id = item.get('image_id')
+                if image_id and product_mgr.image_handler:
+                    image_data = product_mgr.image_handler.load_drive_image(image_id)
+                else:
+                    image_data = "assets/no-image.png" # Fallback to placeholder path
+                st.image(image_data, width=60)
 
             with col_details:
                 st.markdown(f"**{item['name']}** (`{sku}`)")
