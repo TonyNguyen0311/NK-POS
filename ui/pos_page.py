@@ -53,7 +53,8 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
 
                 if stock_quantity > 0:
                     with col.container(border=True, height=360):
-                        image_url = product_mgr.image_handler.get_public_view_url(p.get('image_id')) if product_mgr.image_handler else "assets/no-image.png"
+                        # FIX: Use the correct method to get a temporary URL
+                        image_url = product_mgr.image_handler.get_temporary_download_url(p.get('image_id')) if p.get('image_id') and product_mgr.image_handler else "assets/no-image.png"
                         st.image(image_url, use_column_width=True)
 
                         render_sub_header(p['name'])
@@ -82,7 +83,8 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
         with st.container(border=True):
             col_img, col_details = st.columns([1, 4])
             with col_img:
-                image_url = product_mgr.image_handler.get_public_view_url(item.get('image_id')) if product_mgr.image_handler else "assets/no-image.png"
+                # FIX: Use the correct method to get a temporary URL
+                image_url = product_mgr.image_handler.get_temporary_download_url(item.get('image_id')) if item.get('image_id') and product_mgr.image_handler else "assets/no-image.png"
                 st.image(image_url, width=60)
 
             with col_details:
