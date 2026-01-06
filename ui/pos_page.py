@@ -56,7 +56,7 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
     if not filtered_products:
         st.info("Không tìm thấy sản phẩm phù hợp.")
     else:
-        num_columns = 3
+        num_columns = 4 # Use more columns for a denser layout on desktop
         cols = st.columns(num_columns)
         placeholder_image_bytes = get_placeholder_image()
 
@@ -69,7 +69,8 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
                 stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
                 if stock_quantity <= 0: continue
 
-                with st.container(border=True, height=350):
+                # Container now has auto height to fit content, removing internal scroll
+                with st.container(border=True):
                     # --- Image ---
                     image_id = p.get('image_id')
                     image_data = placeholder_image_bytes
@@ -86,15 +87,16 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
                     
                     price_html = f"<div style='color: #D22B2B; font-weight: bold;'>{format_currency(selling_price, 'đ')}</div>"
                     if base_price and base_price > selling_price:
-                        price_html = f"""
+                        price_html = f'''
                         <div style='color: #D22B2B; font-weight: bold;'>
                             {format_currency(selling_price, 'đ')}
                             <span style='text-decoration: line-through; color: grey; font-size: 0.9em; margin-left: 0.5em;'>{format_currency(base_price, 'đ')}</span>
                         </div>
-                        """
+                        '''
                     st.markdown(price_html, unsafe_allow_html=True)
                     
                     st.markdown(f"<small>Tồn kho: {format_number(stock_quantity)}</small>", unsafe_allow_html=True)
+                    st.empty() # Adds a flexible vertical space to push button down
                     
                     # --- Add to Cart Button (The Streamlit Way) ---
                     if st.button("➕ Thêm vào giỏ", key=f"add_{sku}", use_container_width=True, type="primary"):
