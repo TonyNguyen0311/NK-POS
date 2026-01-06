@@ -11,22 +11,38 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
     """
     Transactional function to create a voucher and all its related inventory transactions.
     This ensures all inventory operations are performed atomically with the voucher creation.
+    All reads are performed before all writes to comply with Firestore transaction constraints.
     """
     inventory_col = db.collection('inventory')
     transactions_col = db.collection('inventory_transactions')
+
+    # --- STAGE 1: READS ---
+    # Read all necessary inventory documents first to get their current state.
+    inventory_states = {}
+    for item in items:
+        sku = item['sku']
+        branch_id = voucher_data['branch_id']
+        inv_doc_ref = inventory_col.document(f"{sku.upper()}_{branch_id}")
+        inv_snapshot = inv_doc_ref.get(transaction=transaction)
+        inventory_states[sku] = {
+            "ref": inv_doc_ref,
+            "snapshot": inv_snapshot
+        }
+
+    # --- STAGE 2: CALCULATIONS & WRITES ---
+    # Now that all reads are done, perform calculations and then all write operations.
+    
     processed_transaction_ids = []
+    all_write_operations = []
 
-    # 1. Create the main voucher document
-    transaction.set(voucher_ref, voucher_data)
-
-    # 2. Process each item in the voucher
     for item in items:
         sku = item['sku']
         delta = item['quantity']
-        purchase_price = item.get('purchase_price') # Will be None for adjustments
+        purchase_price = item.get('purchase_price')  # Will be None for adjustments
 
-        inv_doc_ref = inventory_col.document(f"{sku.upper()}_{voucher_data['branch_id']}")
-        inv_snapshot = inv_doc_ref.get(transaction=transaction)
+        state = inventory_states[sku]
+        inv_doc_ref = state["ref"]
+        inv_snapshot = state["snapshot"]
 
         current_quantity = 0
         current_avg_cost = 0
@@ -47,36 +63,39 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         if new_quantity < 0:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku}. Giao dịch thất bại.")
 
-        # Update inventory document (SKU + Branch)
-        transaction.set(inv_doc_ref, {
+        # Prepare inventory document update
+        inventory_update_data = {
             'sku': sku,
             'branch_id': voucher_data['branch_id'],
             'stock_quantity': new_quantity,
             'average_cost': new_avg_cost,
             'last_updated': voucher_data['created_at'],
-        }, merge=True)
+        }
+        all_write_operations.append(('set', inv_doc_ref, inventory_update_data, True))
 
-        # Create the individual inventory transaction log
+        # Prepare inventory transaction log
         trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
         trans_ref = transactions_col.document(trans_id)
-        transaction.set(trans_ref, {
-            'id': trans_id,
-            'voucher_id': voucher_ref.id,
-            'sku': sku,
-            'branch_id': voucher_data['branch_id'],
-            'user_id': voucher_data['created_by'],
-            'reason': voucher_data['type'], 
-            'delta': delta,
-            'quantity_before': current_quantity,
-            'quantity_after': new_quantity,
-            'cost_at_transaction': new_avg_cost,
-            'purchase_price': purchase_price,
-            'notes': voucher_data.get('notes', ''),
-            'timestamp': voucher_data['created_at'],
-        })
+        transaction_log_data = {
+            'id': trans_id, 'voucher_id': voucher_ref.id, 'sku': sku,
+            'branch_id': voucher_data['branch_id'], 'user_id': voucher_data['created_by'],
+            'reason': voucher_data['type'], 'delta': delta,
+            'quantity_before': current_quantity, 'quantity_after': new_quantity,
+            'cost_at_transaction': new_avg_cost, 'purchase_price': purchase_price,
+            'notes': voucher_data.get('notes', ''), 'timestamp': voucher_data['created_at'],
+        }
+        all_write_operations.append(('set', trans_ref, transaction_log_data, False))
         processed_transaction_ids.append(trans_id)
+
+    # Perform all writes
+    # 1. Main voucher document
+    transaction.set(voucher_ref, {**voucher_data, 'transaction_ids': processed_transaction_ids})
     
-    transaction.update(voucher_ref, {'transaction_ids': processed_transaction_ids})
+    # 2. All inventory and transaction log updates
+    for op, ref, data, merge in all_write_operations:
+        if op == 'set':
+            transaction.set(ref, data, merge=merge)
+
 
 def hash_inventory_manager(manager):
     return "InventoryManager"
@@ -161,9 +180,13 @@ class InventoryManager:
         }
         
         transaction = self.db.transaction()
+        
+        # We need another transactional function for cancellation to be safe
         _create_voucher_and_transactions_transactional(transaction, self.db, cancellation_voucher_ref, cancellation_voucher_data, reversal_items)
 
+        # Update the original voucher status in the same transaction
         transaction.update(original_voucher_ref, {'status': 'CANCELLED', 'cancelled_by': user_id, 'cancelled_at': created_at})
+        
         self._clear_caches(voucher_dict['branch_id'])
         return cancellation_voucher_id
 
