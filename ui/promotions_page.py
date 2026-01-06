@@ -12,8 +12,8 @@ def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: Product
     render_page_title("Quản lý Khuyến mãi")
 
     # Lấy dữ liệu cho các select box
-    all_products = product_mgr.list_products()
-    all_categories = product_mgr.get_categories()
+    all_products = product_mgr.get_all_products(active_only=False)
+    all_categories = product_mgr.get_all_category_items('product_categories')
     product_options = {p['sku']: p['name'] for p in all_products if 'sku' in p}
     category_options = {c['id']: c['name'] for c in all_categories}
 
