@@ -206,7 +206,6 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     # --- TAB 3: VOUCHER HISTORY ---
     elif st.session_state.active_inventory_tab == "📜 Lịch sử Chứng từ":
         st.subheader("Lịch sử Chứng từ Kho")
-        # (Content is the same as before)
         vouchers = inv_mgr.get_vouchers_by_branch(branch_id=selected_branch, limit=100)
 
         if not vouchers:
@@ -220,7 +219,14 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                 header_cols = st.columns([3, 2, 1, 1])
                 header_cols[0].markdown(f"**ID:** `{voucher_id}`")
                 header_cols[1].markdown(f"**Loại:** {voucher_type_display}")
-                created_at_dt = pd.to_datetime(voucher['created_at']).tz_convert('Asia/Ho_Chi_Minh')
+
+                # Safely handle timezone-aware and naive datetimes
+                created_at_dt = pd.to_datetime(voucher['created_at'])
+                if created_at_dt.tzinfo is None:
+                    created_at_dt = created_at_dt.tz_localize('Asia/Ho_Chi_Minh')
+                else:
+                    created_at_dt = created_at_dt.tz_convert('Asia/Ho_Chi_Minh')
+
                 header_cols[2].markdown(f"**Ngày:** {created_at_dt.strftime('%d/%m/%Y')}")
 
                 if voucher_status == 'CANCELLED':
@@ -240,7 +246,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         st.error("Khu vực nguy hiểm (chỉ Admin)")
                         if st.button(f"🚨 Huỷ Chứng từ này", key=f"cancel_{voucher_id}", help=f"Hành động này sẽ đảo ngược toàn bộ giao dịch của chứng từ {voucher_id}. Không thể hoàn tác."):
                             try:
-                                with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."): 
+                                with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."):
                                     inv_mgr.cancel_voucher(voucher_id, user_info['uid'])
                                     st.success(f"Đã huỷ thành công chứng từ {voucher_id}. Tải lại trang để cập nhật.")
                                     st.rerun()
