@@ -93,7 +93,7 @@ class ReportManager:
 
             if not raw_inventory_docs:
                 return {
-                    "success": False, 
+                    "success": True,
                     "data": None, 
                     "message": "Không tìm thấy mục tồn kho nào cho chi nhánh đã chọn trong cơ sở dữ liệu."
                 }
@@ -105,7 +105,7 @@ class ReportManager:
 
             for item_doc in raw_inventory_docs:
                 item_data = item_doc.to_dict()
-                product_id = item_data.get('product_id')
+                product_id = item_doc.id # <--- FIXED: Get product_id from document ID
                 quantity = item_data.get('quantity', 0)
                 
                 if product_id in product_details:
@@ -123,18 +123,17 @@ class ReportManager:
                     total_inventory_value += item_value
                     total_inventory_items += quantity
                 else:
-                    if product_id:
-                        unmatched_product_ids.append(product_id)
+                    unmatched_product_ids.append(product_id)
 
             if not inventory_list:
                 if unmatched_product_ids:
                     return { 
-                        "success": False, 
+                        "success": True, 
                         "data": None, 
                         "message": f"Đã tìm thấy {len(unmatched_product_ids)} mục tồn kho nhưng không thể liên kết với sản phẩm. Có thể các sản phẩm (IDs: {', '.join(set(unmatched_product_ids))}) đã bị xóa. Vui lòng kiểm tra lại." 
                     }
                 else:
-                     return { "success": False, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
+                     return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
 
             inventory_df = pd.DataFrame(inventory_list)
             top_products_df = inventory_df.groupby(['product_id', 'product_name']) \
