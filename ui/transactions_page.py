@@ -19,7 +19,8 @@ def render_transactions_page(txn_manager, branch_mgr, auth_mgr):
     with col2:
         end_date = st.date_input("Đến ngày", date.today())
 
-    branch_options = branch_mgr.get_all_branches()
+    # FIX: Use the correct method `list_branches` instead of `get_all_branches`
+    branch_options = branch_mgr.list_branches()
     branch_map = {b['id']: b['name'] for b in branch_options}
     
     selected_branch_id = None
