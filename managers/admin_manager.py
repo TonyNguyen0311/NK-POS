@@ -8,32 +8,33 @@ class AdminManager:
 
     def _delete_collection_in_batches(self, coll_ref, batch_size):
         """
-        Deletes all documents in a collection in batches to avoid memory/timeout issues.
+        Deletes all documents in a collection in batches.
+        The loop continues as long as documents are being found and deleted.
         """
-        docs = coll_ref.limit(batch_size).stream()
         deleted_count = 0
-        
         while True:
-            batch = self.db.batch()
-            doc_count_in_batch = 0
+            # Fetch a new batch of documents in each iteration
+            docs = list(coll_ref.limit(batch_size).stream())
             
+            # If no documents are found, we are done
+            if not docs:
+                break
+            
+            # Create a write batch and add all delete operations
+            batch = self.db.batch()
             for doc in docs:
                 batch.delete(doc.reference)
-                doc_count_in_batch += 1
             
-            if doc_count_in_batch == 0:
-                break  # No more documents to delete
-            
+            # Commit the batch
             batch.commit()
-            deleted_count += doc_count_in_batch
-            logging.info(f"Deleted a batch of {doc_count_in_batch} documents from {coll_ref.id}.")
-
-            # Fetch the next batch
-            docs = coll_ref.limit(batch_size).stream()
             
+            # Update the count
+            num_deleted_in_batch = len(docs)
+            deleted_count += num_deleted_in_batch
+            logging.info(f"Deleted a batch of {num_deleted_in_batch} documents from {coll_ref.id}.")
+        
         return deleted_count
 
-    # @st.cache_data(ttl=15) # Use a short cache to prevent accidental rapid-fire calls
     def clear_inventory_data(self):
         """
         DANGER: Deletes all documents from 'inventory', 'inventory_vouchers', 
