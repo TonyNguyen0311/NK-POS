@@ -1,33 +1,47 @@
+/* --- CSS Variables for Easy Theming --- */
+:root {
+    --primary-color: #1E88E5; /* Main brand blue */
+    --primary-light-color: #90CAF9;
+    --text-color-body: #333;
+    --text-color-header: #424242;
+    --text-color-subheader: #616161;
+    --border-color: #BDBDBD;
+    --background-color-light: #F5F5F5;
+    --success-color: #4CAF50;
+    --info-color: #2196F3;
+    --warning-color: #FFC107;
+    --error-color: #F44336;
+    --white-color: #FFFFFF;
+    --table-border-color: #E0E0E0;
+    --table-stripe-color: #FAFAFA;
+}
+
 /* General Body Styles */
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    color: #333;
+    color: var(--text-color-body);
 }
 
-/* Page Title */
+/* --- Typography --- */
 .page-title {
-    font-size: 2.2em; /* Adjusted for better balance */
+    font-size: 2.2em;
     font-weight: bold;
-    color: #1E88E5; /* Primary blue color */
+    color: var(--primary-color);
     padding-bottom: 10px;
     border-bottom: 2px solid #EEEEEE;
     margin-bottom: 20px;
 }
-
-/* Section Header */
 .section-header {
-    font-size: 1.6em; /* Adjusted */
+    font-size: 1.6em;
     font-weight: 600;
-    color: #424242;
+    color: var(--text-color-header);
     margin-top: 25px;
     margin-bottom: 15px;
 }
-
-/* Sub-header */
 .sub-header {
-    font-size: 1.3em; /* Adjusted */
+    font-size: 1.3em;
     font-weight: 500;
-    color: #616161;
+    color: var(--text-color-subheader);
     margin-top: 15px;
     margin-bottom: 10px;
 }
@@ -37,37 +51,37 @@ div[data-testid="stTextInput"] input,
 div[data-testid="stNumberInput"] input,
 div[data-testid="stSelectbox"] div[data-baseweb="select"] {
     border-radius: 8px !important;
-    border: 1px solid #BDBDBD !important;
+    border: 1px solid var(--border-color) !important;
     transition: all 0.3s ease-in-out;
 }
 
 div[data-testid="stTextInput"] input:focus,
 div[data-testid="stNumberInput"] input:focus,
 div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within {
-    border-color: #1E88E5 !important;
-    box-shadow: 0 0 0 2px #90CAF9 !important;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px var(--primary-light-color) !important;
 }
 
-
 /* --- Custom Button Styles --- */
+/* Base button style */
 div[data-testid="stButton"] > button {
     border-radius: 8px;
     padding: 10px 20px;
     font-weight: bold;
-    border: 2px solid #1E88E5;
-    background-color: #FFFFFF;
-    color: #1E88E5;
     transition: all 0.3s ease-in-out;
+    border: 2px solid var(--primary-color);
+    background-color: var(--white-color);
+    color: var(--primary-color);
 }
 
 div[data-testid="stButton"] > button:hover {
-    background-color: #1E88E5;
-    color: #FFFFFF;
+    background-color: var(--primary-color);
+    color: var(--white-color);
     transform: scale(1.02);
 }
 
 div[data-testid="stButton"] > button:focus {
-    box-shadow: 0 0 0 3px #90CAF9;
+    box-shadow: 0 0 0 3px var(--primary-light-color);
     outline: none;
 }
 
@@ -75,42 +89,29 @@ div[data-testid="stButton"] > button:focus {
 div[data-testid="stAlert"] {
     border-radius: 8px;
     border-left: 5px solid;
-    background-color: #F5F5F5; /* Light grey background */
+    background-color: var(--background-color-light);
 }
-
-div[data-testid="stAlert"][data-baseweb="notification-positive"] {
-    border-left-color: #4CAF50; /* Green for success */
-}
-
-div[data-testid="stAlert"][data-baseweb="notification-info"] {
-    border-left-color: #2196F3; /* Blue for info */
-}
-
-div[data-testid="stAlert"][data-baseweb="notification-warning"] {
-    border-left-color: #FFC107; /* Yellow for warning */
-}
-
-div[data-testid="stAlert"][data-baseweb="notification-negative"] {
-    border-left-color: #F44336; /* Red for error */
-}
+div[data-testid="stAlert"][data-baseweb="notification-positive"] { border-left-color: var(--success-color); }
+div[data-testid="stAlert"][data-baseweb="notification-info"] { border-left-color: var(--info-color); }
+div[data-testid="stAlert"][data-baseweb="notification-warning"] { border-left-color: var(--warning-color); }
+div[data-testid="stAlert"][data-baseweb="notification-negative"] { border-left-color: var(--error-color); }
 
 /* --- Dataframe and Table Styles --- */
 .stDataFrame, .stTable {
-    border: 1px solid #E0E0E0;
+    border: 1px solid var(--table-border-color);
     border-radius: 8px;
 }
+/* Zebra-striping for better readability */
+.stDataFrame table tbody tr:nth-of-type(even) {
+    background-color: var(--table-stripe-color);
+}
+
 
 /* --- Mobile Responsiveness --- */
 @media (max-width: 640px) {
-    .page-title {
-        font-size: 1.8em;
-    }
-    .section-header {
-        font-size: 1.4em;
-    }
-    .sub-header {
-        font-size: 1.1em;
-    }
+    .page-title { font-size: 1.8em; }
+    .section-header { font-size: 1.4em; }
+    .sub-header { font-size: 1.1em; }
     div[data-testid="stButton"] > button {
         width: 100%; /* Make buttons full-width on mobile */
     }

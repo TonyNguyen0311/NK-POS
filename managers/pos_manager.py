@@ -191,10 +191,12 @@ class POSManager:
                 order_ref = self.orders_collection.document(order_id)
                 for item in order_items_to_save:
                     self.inventory_mgr.update_inventory(
+                        transaction=transaction,
                         sku=item['sku'],
                         branch_id=branch_id,
                         delta=-item['quantity'],
-                        transaction=transaction
+                        order_id=order_id,
+                        user_id=seller_id
                     )
                 if customer_id != "-":
                     self.customer_mgr.update_customer_stats(

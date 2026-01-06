@@ -67,28 +67,28 @@ MENU_PERMISSIONS = {
     ]
 }
 MENU_STRUCTURE = {
-    "📈 Nghiệp vụ": [
+    "🎯 Hoạt động Hàng ngày": [
         "Bán hàng (POS)",
+        "Quản lý Kho",
+        "Luân chuyển Kho",
+        "Lịch sử Giao dịch",
+    ],
+    "📈 Phân tích & Tăng trưởng": [
         "Báo cáo P&L",
         "Báo cáo & Phân tích",
-        "Ghi nhận Chi phí",
-        "Lịch sử Giao dịch", # Added
+        "Quản lý Khuyến mãi",
     ],
-    "📦 Hàng hoá": [
-        "Quản lý Sản phẩm",
+    "📂 Quản lý Dữ liệu": [
         "Sản phẩm Kinh doanh",
-        "Quản lý Kho",
-        "Luân chuyển Kho"
-    ],
-    "⚙️ Thiết lập": [
+        "Quản lý Sản phẩm",
         "Danh mục",
+        "Ghi nhận Chi phí",
         "Phân bổ Chi phí",
-        "Quản lý Khuyến mãi"
     ],
-    "🔑 Quản trị": [
+    "🔑 Quản trị Hệ thống": [
         "Quản lý Người dùng",
         "Quản trị Hệ thống",
-        "Dọn dẹp Dữ liệu"
+        "Dọn dẹp Dữ liệu",
     ]
 }
 

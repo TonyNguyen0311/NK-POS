@@ -96,7 +96,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         if op == 'set':
             transaction.set(ref, data, merge=merge)
 
-
 def hash_inventory_manager(manager):
     return "InventoryManager"
 
@@ -106,6 +105,61 @@ class InventoryManager:
         self.vouchers_col = self.db.collection('inventory_vouchers')
         self.inventory_col = self.db.collection('inventory')
         self.transactions_col = self.db.collection('inventory_transactions')
+
+    def update_inventory(self, transaction, sku: str, branch_id: str, delta: int, order_id: str, user_id: str):
+        """
+        Updates inventory for a given SKU within an existing Firestore transaction.
+        This is designed to be called during an order creation process.
+
+        Args:
+            transaction: The Firestore transaction object.
+            sku (str): The product SKU.
+            branch_id (str): The branch ID.
+            delta (int): The change in quantity (should be negative for sales).
+            order_id (str): The ID of the order causing this inventory change.
+            user_id (str): The ID of the user (seller) creating the order.
+        """
+        if delta == 0:
+            return
+
+        inv_doc_ref = self.inventory_col.document(f"{sku.upper()}_{branch_id}")
+        inv_snapshot = inv_doc_ref.get(transaction=transaction)
+
+        current_quantity = 0
+        average_cost = 0
+        if inv_snapshot.exists:
+            inv_data = inv_snapshot.to_dict()
+            current_quantity = inv_data.get('stock_quantity', 0)
+            average_cost = inv_data.get('average_cost', 0)
+
+        new_quantity = current_quantity + delta
+        if new_quantity < 0:
+            raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku} tại chi nhánh {branch_id}. Giao dịch thất bại.")
+
+        # Update inventory document (do not change average_cost on sale)
+        transaction.update(inv_doc_ref, {
+            'stock_quantity': new_quantity,
+            'last_updated': datetime.now().isoformat()
+        })
+
+        # Create inventory transaction log for the sale
+        trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
+        trans_ref = self.transactions_col.document(trans_id)
+        transaction.set(trans_ref, {
+            'id': trans_id,
+            'voucher_id': order_id,  # Link to the sales order
+            'sku': sku,
+            'branch_id': branch_id,
+            'user_id': user_id,
+            'reason': 'SALE',
+            'delta': delta,
+            'quantity_before': current_quantity,
+            'quantity_after': new_quantity,
+            'cost_at_transaction': average_cost, # Record the COGS for this item
+            'purchase_price': None,  # Not applicable for sales transaction
+            'notes': f'Bán hàng theo đơn hàng {order_id}',
+            'timestamp': datetime.now().isoformat(),
+        })
 
     def _clear_caches(self, branch_id: str):
         st.cache_data.clear()
