@@ -1,10 +1,26 @@
 
 import streamlit as st
+import os
 
+@st.cache_data
 def load_css(file_path):
-    """Loads a CSS file into the Streamlit app."""
+    """
+    Decorator to cache the CSS content. This function will only run once,
+    and the result will be stored in the cache.
+    """
+    if not os.path.exists(file_path):
+        # Fallback or error, in case the CSS file is missing
+        return ""
     with open(file_path) as f:
-        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+        return f.read()
+
+def inject_custom_css():
+    """
+    Loads and injects the custom CSS into the Streamlit app.
+    It uses a cached function to avoid re-reading the file on every rerun.
+    """
+    custom_css = load_css("assets/styles.css")
+    st.markdown(f'<style>{custom_css}</style>', unsafe_allow_html=True)
 
 def render_page_title(title):
     """Renders a formatted page title using a custom CSS class."""
@@ -34,7 +50,6 @@ def render_branch_selector(allowed_branches_map, default_branch_id=None, key_pre
         return None
 
     branch_ids = list(allowed_branches_map.keys())
-    branch_names = list(allowed_branches_map.values())
     
     # Ensure the default is valid, otherwise use the first available branch
     try:

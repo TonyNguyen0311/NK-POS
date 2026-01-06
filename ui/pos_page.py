@@ -2,7 +2,7 @@
 import streamlit as st
 import base64
 from datetime import datetime
-from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector
+from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector, inject_custom_css
 from utils.formatters import format_currency, format_number
 import os
 
@@ -35,105 +35,11 @@ def get_placeholder_image_b64():
     except Exception:
         return None
 
-def get_product_grid_styles():
-    """Returns the CSS styles for the responsive product grid."""
-    return """
-    <style>
-        /* Main grid container */
-        .product-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 1.5rem;
-        }
-
-        /* Individual product card */
-        .product-card {
-            display: flex;
-            flex-direction: column;
-            border: 1px solid rgba(49, 51, 63, 0.2);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            transition: box-shadow 0.3s ease;
-            height: 100%; /* Ensure cards in a row have same height */
-        }
-        .product-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Image container with fixed aspect ratio */
-        .product-image-container {
-            aspect-ratio: 1 / 1;
-            width: 100%;
-            border-radius: 0.25rem;
-            overflow: hidden;
-            margin-bottom: 0.75rem;
-        }
-
-        .product-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        /* Product title with line-clamp */
-        .product-title {
-            font-weight: bold;
-            font-size: 1em;
-            margin-bottom: 0.25rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            height: 2.4em; /* Approx 2 lines height */
-        }
-        
-        .product-details {
-            flex-grow: 1; /* Pushes the button to the bottom */
-            display: flex;
-            flex-direction: column;
-        }
-
-        .product-price {
-            color: #D22B2B;
-            font-weight: bold;
-            margin-bottom: 0.25rem;
-        }
-
-        .product-stock {
-            font-size: 0.85em;
-            color: #555;
-            flex-grow: 1; /* Takes up available space to push button down */
-            margin-bottom: 0.75rem;
-        }
-
-        /* Custom 'Add to Cart' button styled as a link */
-        .add-to-cart-btn {
-            display: block;
-            text-align: center;
-            background-color: #0068c9; /* Streamlit primary color */
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-            text-decoration: none;
-            transition: background-color 0.3s ease;
-            border: 1px solid #0068c9;
-        }
-        .add-to-cart-btn:hover {
-            background-color: #0055a8;
-            color: white;
-        }
-    </style>
-    """
-
 def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Displays a fully responsive product grid using HTML/CSS within st.markdown."""
+    """Displays a fully responsive product grid using HTML/CSS."""
     render_section_header("Thư viện Sản phẩm")
     
-    # Inject CSS styles
-    st.markdown(get_product_grid_styles(), unsafe_allow_html=True)
-    
-    # 1. Filters
+    # Filters
     search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input", label_visibility="collapsed")
     st.session_state.pos_search = search_query
 
@@ -143,7 +49,7 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
     selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category')
     st.divider()
 
-    # 2. Product Data Fetching & Filtering
+    # Product Data Fetching & Filtering
     branch_products = product_mgr.get_listed_products_for_branch(branch_id)
     branch_inventory = inventory_mgr.get_inventory_by_branch(branch_id)
 
@@ -151,54 +57,48 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
     if selected_cat != "ALL":
         filtered_products = [p for p in filtered_products if p.get('category_id') == selected_cat]
 
-    # 3. Grid Rendering using HTML/CSS
+    # Grid Rendering
     if not filtered_products:
         st.info("Không tìm thấy sản phẩm phù hợp.")
     else:
         placeholder_b64 = get_placeholder_image_b64()
+        cols = st.columns(4) # You can adjust the number of columns
         
-        # Start the grid
-        html_cards = '<div class="product-grid">'
-
-        for p in filtered_products:
+        for i, p in enumerate(filtered_products):
             sku = p.get('sku')
             if not sku: continue
 
             stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
             if stock_quantity <= 0: continue
-
-            # --- Get Image ---
-            image_b64 = placeholder_b64
-            image_id = p.get('image_id')
-            if image_id and product_mgr.image_handler:
-                img_bytes = product_mgr.image_handler.load_drive_image(image_id)
-                if img_bytes:
-                    image_b64 = get_image_as_base64(img_bytes)
             
-            image_src = f"data:image/png;base64,{image_b64}" if image_b64 else ""
+            with cols[i % 4]:
+                # --- Get Image ---
+                image_b64 = placeholder_b64
+                image_id = p.get('image_id')
+                if image_id and product_mgr.image_handler:
+                    img_bytes = product_mgr.image_handler.load_drive_image(image_id)
+                    if img_bytes:
+                        image_b64 = get_image_as_base64(img_bytes)
+                
+                image_src = f"data:image/png;base64,{image_b64}" if image_b64 else ""
 
-            # --- Get Price ---
-            selling_price = p.get('selling_price', 0)
-            
-            # --- Build HTML for one card ---
-            html_cards += f'''
-            <div class="product-card">
-                <div class="product-image-container">
-                    <img src="{image_src}" class="product-image">
+                # --- Get Price ---
+                selling_price = p.get('selling_price', 0)
+                
+                # --- Build HTML for one card ---
+                st.markdown(f'''
+                <div class="product-card">
+                    <div class="product-image-container">
+                        <img src="{image_src}" class="product-image">
+                    </div>
+                    <div class="product-details">
+                        <div class="product-title">{p['name']}</div>
+                        <div class="product-price">{format_currency(selling_price, 'đ')}</div>
+                        <div class="product-stock">Tồn kho: {format_number(stock_quantity)}</div>
+                        <a href="?add_to_cart={sku}" target="_self" class="add-to-cart-btn">➕ Thêm vào giỏ</a>
+                    </div>
                 </div>
-                <div class="product-details">
-                    <div class="product-title">{p['name']}</div>
-                    <div class="product-price">{format_currency(selling_price, 'đ')}</div>
-                    <div class="product-stock">Tồn kho: {format_number(stock_quantity)}</div>
-                    <a href="?add_to_cart={sku}" target="_self" class="add-to-cart-btn">➕ Thêm vào giỏ</a>
-                </div>
-            </div>
-            '''
-
-        # Close the grid
-        html_cards += '</div>'
-        st.markdown(html_cards, unsafe_allow_html=True)
-
+                ''', unsafe_allow_html=True)
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
     """Displays the items currently in the cart."""
@@ -325,6 +225,7 @@ def handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, branch_id):
 # --- Main Page Rendering ---
 def render_pos_page(pos_mgr):
     render_page_title("Bán hàng tại quầy (POS)")
+    inject_custom_css() # Inject the centralized CSS
 
     # --- Initialize Managers & State ---
     auth_mgr = st.session_state.auth_mgr

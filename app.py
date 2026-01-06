@@ -40,7 +40,7 @@ from ui.admin_page import render_admin_page
 from ui.transactions_page import render_transactions_page # Added
 
 # --- UI Utils ---
-from ui._utils import load_css
+from ui._utils import inject_custom_css
 
 st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
@@ -163,7 +163,7 @@ def display_sidebar():
         st.rerun()
 
 def main():
-    load_css('assets/styles.css')
+    inject_custom_css()
 
     init_managers()
 
