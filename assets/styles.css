@@ -1,108 +1,114 @@
-
-/* PRODUCT GRID AND CARD STYLES FOR POS PAGE */
-
-/* Enables a responsive grid layout */
-.product-grid {
-    display: grid;
-    /* 
-      - Creates columns that are at least 160px wide.
-      - 'auto-fit' tells the grid to create as many columns as can fit in the available space.
-      - '1fr' allows columns to grow equally to fill any remaining space.
-    */
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 1rem; /* Sets the spacing between product cards */
+/* General Styles */
+body {
+    /* Add general body styles here */
 }
 
-/* Defines the container for each product card */
+.sub-header {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Product Grid Styles */
+.product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
 .product-card {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem;
     display: flex;
     flex-direction: column;
-    height: 350px; /* A fixed height ensures all cards in a row are aligned */
-    border: 1px solid #e6e6e6;
-    border-radius: 8px;
-    background-color: #ffffff;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    transition: box-shadow 0.2s ease-in-out;
+    justify-content: space-between;
+    transition: box-shadow 0.3s ease;
 }
 
 .product-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1); /* Adds a subtle lift effect on hover */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-/* Container for the product image to enforce aspect ratio */
 .product-card-image-wrapper {
     width: 100%;
-    aspect-ratio: 1 / 1; /* Enforces a square (1:1) aspect ratio */
-    overflow: hidden; /* Hides any part of the image that overflows the square */
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
+    padding-top: 100%; /* 1:1 Aspect Ratio */
+    position: relative;
+    overflow: hidden;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
 }
 
 .product-card-image {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover; /* Scales the image to cover the container, cropping if necessary */
+    object-fit: cover; /* Changed from contain to cover */
 }
 
-/* Container for the card's text content (title, price, etc.) */
 .product-card-body {
+    flex-grow: 1;
     display: flex;
     flex-direction: column;
-    flex-grow: 1; /* Allows this section to fill the remaining space in the card */
-    padding: 0.75rem;
 }
 
 .product-card-title {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-    line-height: 1.3;
-    height: 2.6em; /* Sets a height equivalent to two lines */
-
-    /* The following properties create the "line-clamp" effect */
+    font-size: 1rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    /* Clamp title to 2 lines */
     display: -webkit-box;
-    -webkit-line-clamp: 2; /* Limits the text to a maximum of 2 lines */
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
+    height: 2.5em; /* Fallback for browsers not supporting -webkit-line-clamp */
 }
 
 .product-card-price {
     font-size: 1.1rem;
-    font-weight: 700;
-    color: #D22B2B; /* A prominent red for the price */
+    font-weight: bold;
+    color: #D22B2B;
     margin-bottom: 0.25rem;
 }
 
 .product-card-price-old {
     text-decoration: line-through;
     color: grey;
-    font-size: 0.85em;
-    font-weight: 400;
-    margin-left: 0.3rem;
+    font-size: 0.9em;
+    margin-left: 0.5em;
 }
 
 .product-card-stock {
-    font-size: 0.85rem;
-    color: #6c757d;
-    margin-bottom: 0.5rem;
-    flex-grow: 1; /* Pushes the button to the bottom of the card */
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 0.75rem;
+    flex-grow: 1; /* Pushes the button to the bottom */
 }
 
-/* Styling for the 'Add to cart' button link */
 .product-card-add-button {
     display: block;
     text-align: center;
-    background-color: #0d6efd; /* Streamlit's primary button color */
+    background-color: #28a745; /* Green color for add action */
     color: white;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
     text-decoration: none;
-    font-weight: 600;
-    transition: background-color 0.2s ease;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    font-weight: bold;
+    border: none;
 }
 
 .product-card-add-button:hover {
-    background-color: #0b5ed7; /* Darker shade on hover */
-    color: white;
+    background-color: #218838; /* Darker green on hover */
+    color: white; /* Ensure text remains white */
+    transform: translateY(-2px);
+    text-decoration: none;
+}
+
+.product-card-add-button:active {
+    transform: translateY(0);
 }
