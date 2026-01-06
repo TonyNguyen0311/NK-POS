@@ -18,6 +18,7 @@ from managers.settings_manager import SettingsManager
 from managers.promotion_manager import PromotionManager
 from managers.cost_manager import CostManager
 from managers.price_manager import PriceManager
+from managers.admin_manager import AdminManager # Added
 
 # --- Import UI Pages ---
 from ui.login_page import render_login_page
@@ -26,7 +27,6 @@ from ui.report_page import render_report_page
 from ui.settings_page import render_settings_page
 from ui.promotions_page import render_promotions_page
 from ui.cost_entry_page import render_cost_entry_page
-# render_cost_group_page is no longer needed
 from ui.inventory_page import render_inventory_page
 from ui.user_management_page import render_user_management_page
 from ui.product_catalog_page import render_product_catalog_page
@@ -34,7 +34,8 @@ from ui.business_products_page import render_business_products_page
 from ui.stock_transfer_page import show_stock_transfer_page
 from ui.cost_allocation_page import render_cost_allocation_page
 from ui.pnl_report_page import render_pnl_report_page
-from ui.categories_page import render_categories_page # Import the new categories page
+from ui.categories_page import render_categories_page
+from ui.admin_page import render_admin_page # Added
 
 # --- UI Utils ---
 from ui._utils import load_css
@@ -43,25 +44,21 @@ st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
 # --- MENU PERMISSIONS & STRUCTURE (Updated)---
 MENU_PERMISSIONS = {
-    # Admin has all permissions
     "admin": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
-        "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Sản phẩm", # Renamed
-        "Danh mục", "Phân bổ Chi phí", "Quản lý Khuyến mãi", # "Danh mục" added
-        "Quản lý Người dùng", "Quản trị Hệ thống",
+        "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Sản phẩm",
+        "Danh mục", "Phân bổ Chi phí", "Quản lý Khuyến mãi",
+        "Quản lý Người dùng", "Quản trị Hệ thống", "Dọn dẹp Dữ liệu", # Added
     ],
-    # Manager can see reports and manage their users/promotions
     "manager": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Khuyến mãi",
         "Quản lý Người dùng",
     ],
-    # Supervisor manages a store's operations and staff
     "supervisor": [
         "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
         "Quản lý Người dùng",
     ],
-    # Staff handles sales and inventory tasks
     "staff": [
         "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho",
     ]
@@ -74,19 +71,20 @@ MENU_STRUCTURE = {
         "Ghi nhận Chi phí"
     ],
     "📦 Hàng hoá": [
-        "Quản lý Sản phẩm", # Renamed from "Danh mục Sản phẩm"
+        "Quản lý Sản phẩm",
         "Sản phẩm Kinh doanh",
         "Quản lý Kho",
         "Luân chuyển Kho"
     ],
     "⚙️ Thiết lập": [
-        "Danh mục", # Renamed from "Danh mục Chi phí"
+        "Danh mục",
         "Phân bổ Chi phí",
         "Quản lý Khuyến mãi"
     ],
     "🔑 Quản trị": [
         "Quản lý Người dùng",
-        "Quản trị Hệ thống"
+        "Quản trị Hệ thống",
+        "Dọn dẹp Dữ liệu" # Added
     ]
 }
 
@@ -112,6 +110,7 @@ def init_managers():
 
     fb_client = st.session_state.firebase_client
 
+    # Instantiate all managers
     st.session_state.branch_mgr = BranchManager(fb_client)
     st.session_state.settings_mgr = SettingsManager(fb_client)
     st.session_state.inventory_mgr = InventoryManager(fb_client)
@@ -122,6 +121,7 @@ def init_managers():
     st.session_state.product_mgr = ProductManager(fb_client, price_mgr=st.session_state.price_mgr)
     st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
     st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
+    st.session_state.admin_mgr = AdminManager(fb_client) # Added
     st.session_state.pos_mgr = POSManager(
         firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
         customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
@@ -190,9 +190,10 @@ def main():
         "Quản lý Khuyến mãi": lambda: render_promotions_page(st.session_state.promotion_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
         "Quản lý Người dùng": lambda: render_user_management_page(st.session_state.auth_mgr, st.session_state.branch_mgr),
         "Quản trị Hệ thống": lambda: render_settings_page(st.session_state.settings_mgr, st.session_state.auth_mgr),
-        "Quản lý Sản phẩm": lambda: render_product_catalog_page(st.session_state.product_mgr, st.session_state.auth_mgr), # Renamed
+        "Quản lý Sản phẩm": lambda: render_product_catalog_page(st.session_state.product_mgr, st.session_state.auth_mgr),
         "Sản phẩm Kinh doanh": lambda: render_business_products_page(st.session_state.auth_mgr, st.session_state.branch_mgr, st.session_state.product_mgr, st.session_state.price_mgr),
-        "Danh mục": lambda: render_categories_page(st.session_state.product_mgr, st.session_state.cost_mgr), # Added
+        "Danh mục": lambda: render_categories_page(st.session_state.product_mgr, st.session_state.cost_mgr),
+        "Dọn dẹp Dữ liệu": lambda: render_admin_page(st.session_state.admin_mgr, st.session_state.auth_mgr), # Added
     }
 
     renderer = page_renderers.get(page)
