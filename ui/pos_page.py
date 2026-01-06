@@ -211,7 +211,7 @@ def handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, branch_id):
         sku_to_add = st.query_params['add_to_cart']
         
         # Find the product and its stock quantity
-        product = product_mgr.get_product_by_sku(sku_to_add)
+        product = product_mgr.get_product_by_id(sku_to_add)
         stock_quantity = inventory_mgr.get_inventory_by_branch(branch_id).get(sku_to_add, {}).get('stock_quantity', 0)
 
         if product and stock_quantity > 0:
