@@ -8,18 +8,28 @@ class AdminManager:
 
     def _delete_collection_in_batches(self, coll_ref, batch_size):
         """
-        Deletes all documents in a collection in batches.
-        The loop continues as long as documents are being found and deleted.
+        Deletes all documents in a collection using pagination (cursors) for robustness.
+        This method orders documents by their ID and uses `start_after` to paginate,
+        ensuring all documents are processed even during mutations.
         """
         deleted_count = 0
+        last_doc = None # Acts as the cursor
+
         while True:
-            # Fetch a new batch of documents in each iteration
-            docs = list(coll_ref.limit(batch_size).stream())
-            
+            # Base query ordered by document ID
+            query = coll_ref.order_by('__name__').limit(batch_size)
+
+            # If we have a cursor from the last batch, start after it
+            if last_doc:
+                query = query.start_after(last_doc)
+
+            # Get the next batch of documents
+            docs = list(query.stream())
+
             # If no documents are found, we are done
             if not docs:
                 break
-            
+
             # Create a write batch and add all delete operations
             batch = self.db.batch()
             for doc in docs:
@@ -27,11 +37,11 @@ class AdminManager:
             
             # Commit the batch
             batch.commit()
-            
-            # Update the count
-            num_deleted_in_batch = len(docs)
-            deleted_count += num_deleted_in_batch
-            logging.info(f"Deleted a batch of {num_deleted_in_batch} documents from {coll_ref.id}.")
+
+            # Update the count and set the cursor for the next iteration
+            deleted_count += len(docs)
+            last_doc = docs[-1] # The last doc of the current batch is the cursor for the next one
+            logging.info(f"Deleted a batch of {len(docs)} documents from {coll_ref.id}.")
         
         return deleted_count
 
@@ -53,8 +63,7 @@ class AdminManager:
             try:
                 coll_ref = self.db.collection(coll_name)
                 logging.info(f"Starting to clear collection: {coll_name}")
-                # Using a batch size of 200 (Firestore's max is 500)
-                count = self._delete_collection_in_batches(coll_ref, 200)
+                count = self._delete_collection_in_batches(coll_ref, 200) # Using a batch size of 200
                 deleted_counts[coll_name] = count
                 logging.info(f"Successfully cleared {coll_name}, deleted {count} documents.")
             except Exception as e:
