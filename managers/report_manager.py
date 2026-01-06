@@ -14,8 +14,82 @@ class ReportManager:
     def __init__(self, firebase_client, cost_mgr: CostManager):
         self.db = firebase_client.db
         self.cost_mgr = cost_mgr
-        self.orders_collection = self.db.collection('orders')
-        self.products_collection = self.db.collection('products')
+        self.orders_collection = self.db.collection(\'orders\')
+        self.products_collection = self.db.collection(\'products\')
+        self.inventory_collection = self.db.collection(\'inventory\') # Added inventory collection
+
+    def get_inventory_report(self, branch_ids: list):
+        """
+        Tạo báo cáo tồn kho chi tiết cho các chi nhánh được chọn.
+        """
+        try:
+            # 1. Fetch all product details for enrichment
+            products_snapshot = self.products_collection.stream()
+            product_details = {
+                p.id: p.to_dict() for p in products_snapshot
+            }
+
+            # 2. Query inventory for the selected branches
+            inventory_query = self.inventory_collection
+            if branch_ids:
+                inventory_query = inventory_query.where(\'branch_id\', \'in\', branch_ids)
+            
+            inventory_snapshot = inventory_query.stream()
+
+            # 3. Process the data
+            inventory_list = []
+            total_inventory_value = 0
+            total_inventory_items = 0
+
+            for item in inventory_snapshot:
+                item_data = item.to_dict()
+                product_id = item_data.get(\'product_id\')
+                quantity = item_data.get(\'quantity\', 0)
+                
+                if product_id in product_details:
+                    product = product_details[product_id]
+                    cost_price = product.get(\'cost_price\', 0)
+                    item_value = cost_price * quantity
+
+                    inventory_list.append({
+                        \'product_id\': product_id,
+                        \'product_name\': product.get(\'name\', \'N/A\'),
+                        \'branch_id\': item_data.get(\'branch_id\'),
+                        \'quantity\': quantity,
+                        \'cost_price\': cost_price,
+                        \'total_value\': item_value
+                    })
+                    total_inventory_value += item_value
+                    total_inventory_items += quantity
+
+            if not inventory_list:
+                return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho." }
+
+            # 4. Create DataFrames for analysis
+            inventory_df = pd.DataFrame(inventory_list)
+            
+            # Group by product to get top inventory value products
+            top_products_df = inventory_df.groupby([\'product_id\', \'product_name\']) \\
+                                          .agg(total_quantity=(\'quantity\', \'sum\'), total_value=(\'total_value\', \'sum\')) \\
+                                          .sort_values(by=\'total_value\', ascending=False) \\
+                                          .reset_index()
+
+            # Find low stock items (quantity < 10)
+            low_stock_df = inventory_df[inventory_df[\'quantity\'] < 10].sort_values(by=\'quantity\')
+
+            report_data = {
+                \'total_inventory_value\': total_inventory_value,
+                \'total_inventory_items\': total_inventory_items,
+                \'inventory_details_df\': inventory_df,
+                \'top_products_by_value_df\': top_products_df.head(10),
+                \'low_stock_items_df\': low_stock_df
+            }
+            
+            return { "success": True, "data": report_data }
+
+        except Exception as e:
+            st.error(f"Lỗi khi tạo báo cáo tồn kho: {e}")
+            return { "success": False, "message": str(e) }
 
     def get_profit_loss_statement(self, start_date: datetime, end_date: datetime, branch_id: str = None):
         """
@@ -28,11 +102,11 @@ class ReportManager:
         if branch_id:
              branch_ids_for_query = [branch_id]
 
-        order_query = self.orders_collection.where('status', '==', 'COMPLETED')\
-                                       .where('created_at', '>=', start_date.isoformat())\
-                                       .where('created_at', '<=', end_date.isoformat())
+        order_query = self.orders_collection.where(\'status\', \'==\', \'COMPLETED\')\\
+                                       .where(\'created_at\', \'>=\', start_date.isoformat())\\\
+                                       .where(\'created_at\', \'<=\', end_date.isoformat())
         if branch_id:
-            order_query = order_query.where('branch_id', '==', branch_id)
+            order_query = order_query.where(\'branch_id\', \'==\', branch_id)
 
         orders = order_query.stream()
         total_revenue = 0
@@ -40,8 +114,8 @@ class ReportManager:
         order_count = 0
         for order in orders:
             order_data = order.to_dict()
-            total_revenue += order_data.get('grand_total', 0)
-            total_cogs += order_data.get('total_cogs', 0)
+            total_revenue += order_data.get(\'grand_total\', 0)
+            total_cogs += order_data.get(\'total_cogs\', 0)
             order_count += 1
 
         gross_profit = total_revenue - total_cogs
@@ -52,33 +126,33 @@ class ReportManager:
         total_op_expenses = 0
 
         cost_filters = {
-            'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat(),
+            \'start_date\': start_date.isoformat(),
+            \'end_date\': end_date.isoformat(),
         }
         if branch_id:
-            cost_filters['branch_id'] = branch_id
+            cost_filters[\'branch_id\'] = branch_id
         
         cost_entries = self.cost_mgr.query_cost_entries(filters=cost_filters)
         
-        cost_groups_raw = self.cost_mgr.get_all_category_items('cost_groups')
-        cost_groups = {g['id']: g['group_name'] for g in cost_groups_raw}
+        cost_groups_raw = self.cost_mgr.get_all_category_items(\'cost_groups\')
+        cost_groups = {g[\'id\']: g[\'group_name\'] for g in cost_groups_raw}
 
         for entry in cost_entries:
             cost_in_period = 0
-            if entry.get('is_amortized') and entry.get('amortization_months', 0) > 0:
+            if entry.get(\'is_amortized\') and entry.get(\'amortization_months\', 0) > 0:
                 cost_in_period = self._calculate_amortized_cost_for_period(entry, start_date, end_date)
-            elif not entry.get('is_amortized'):
-                entry_date = datetime.fromisoformat(entry['entry_date']).replace(tzinfo=None)
+            elif not entry.get(\'is_amortized\'):
+                entry_date = datetime.fromisoformat(entry[\'entry_date\']).replace(tzinfo=None)
                 if start_date <= entry_date <= end_date:
-                    cost_in_period = entry['amount']
+                    cost_in_period = entry[\'amount\']
             
             if cost_in_period > 0:
                 total_op_expenses += cost_in_period
 
-                group_name = cost_groups.get(entry.get('group_id'), "Chưa phân loại")
+                group_name = cost_groups.get(entry.get(\'group_id\'), "Chưa phân loại")
                 op_expenses_by_group[group_name] = op_expenses_by_group.get(group_name, 0) + cost_in_period
 
-                classification_key = entry.get('classification', 'UNCATEGORIZED')
+                classification_key = entry.get(\'classification\', \'UNCATEGORIZED\')
                 op_expenses_by_classification[classification_key] = op_expenses_by_classification.get(classification_key, 0) + cost_in_period
 
         # 3. TÍNH LỢI NHUẬN RÒNG
@@ -86,8 +160,8 @@ class ReportManager:
 
         return {
             "success": True,
-            "start_date": start_date.strftime('%Y-%m-%d'),
-            "end_date": end_date.strftime('%Y-%m-%d'),
+            "start_date": start_date.strftime(\'%Y-%m-%d\'),
+            "end_date": end_date.strftime(\'%Y-%m-%d\'),
             "branch_id": branch_id,
             "order_count": order_count,
             "total_revenue": total_revenue,
@@ -101,9 +175,9 @@ class ReportManager:
 
     def _calculate_amortized_cost_for_period(self, cost_entry, report_start, report_end) -> float:
         try:
-            amount = float(cost_entry['amount'])
-            months = int(cost_entry['amortization_months'])
-            entry_date = datetime.fromisoformat(cost_entry['entry_date']).replace(tzinfo=None)
+            amount = float(cost_entry[\'amount\'])
+            months = int(cost_entry[\'amortization_months\'])
+            entry_date = datetime.fromisoformat(cost_entry[\'entry_date\']).replace(tzinfo=None)
 
             if months <= 0: return 0
 
@@ -121,8 +195,10 @@ class ReportManager:
 
             return total_cost_in_period
         except (ValueError, TypeError, KeyError) as e:
-            print(f"Error calculating amortization for entry {cost_entry.get('id')}: {e}")
+            print(f"Error calculating amortization for entry {cost_entry.get(\'id\')}: {e}")
             return 0
 
 # Apply decorators after the class is defined
 ReportManager.get_profit_loss_statement = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_loss_statement)
+ReportManager.get_inventory_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_inventory_report)
+
