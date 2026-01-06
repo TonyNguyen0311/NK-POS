@@ -136,7 +136,7 @@ class InventoryManager:
             branch_id=branch_id, 
             delta=delta,
             user_id=user_id, 
-            reason=f"ADJUSTMENT_{reason.upper()SERIALIZED}",
+            reason=f"ADJUSTMENT_{reason.upper()}",
             notes=notes
             # purchase_price is None, so avg cost won't be recalculated based on a new price
         )
