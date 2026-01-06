@@ -5,7 +5,8 @@ from ui._utils import render_section_header
 import pandas as pd
 
 def render_transactions_page(txn_manager, branch_mgr, auth_mgr):
-    user_info = auth_mgr.get_current_user()
+    # FIX: Get user info from session_state instead of a non-existent method
+    user_info = st.session_state.user 
     user_branch_id = user_info.get('branch_id')
     user_role = user_info.get('role')
 
