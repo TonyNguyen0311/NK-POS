@@ -1,6 +1,5 @@
 
 import streamlit as st
-import pandas as pd
 from managers.product_manager import ProductManager
 from managers.auth_manager import AuthManager
 from ui._utils import render_page_title, render_section_header
@@ -22,7 +21,16 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
     if 'deleting_product_id' not in st.session_state:
         st.session_state.deleting_product_id = None
 
-    # The page no longer has tabs, directly showing product management.
+    # --- Helper function to display image safely ---
+    def display_image(image_id, width=150):
+        if image_id and prod_mgr.image_handler:
+            image_bytes = prod_mgr.image_handler.load_drive_image(image_id)
+            if image_bytes:
+                st.image(image_bytes, width=width)
+            else:
+                st.image("assets/no-image.png", width=width)
+        else:
+            st.image("assets/no-image.png", width=width)
 
     # --- PRODUCT MANAGEMENT UI ---
     if is_manager_or_admin:
@@ -30,10 +38,8 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         form_title = "✏️ Chỉnh sửa Sản phẩm" if editing_product else "➕ Thêm Sản Phẩm Mới"
         
         with st.expander(form_title, expanded=st.session_state.editing_product_id is not None):
-            # Fetch categories and units using the new generic method
-            categories = prod_mgr.get_all_category_items("ProductCategories")
-            units = prod_mgr.get_all_category_items("ProductUnits")
-            
+            categories = prod_mgr.get_all_category_items("product_categories")
+            units = prod_mgr.get_all_category_items("product_units")
             cat_opts = {c['id']: c['category_name'] for c in categories}
             unit_opts = {u['id']: u['unit_name'] for u in units}
 
@@ -52,14 +58,13 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                 
                 st.write("Ảnh sản phẩm:")
                 delete_image = False
-                
                 image_id_to_edit = editing_product.get('image_id') if editing_product else None
-                # Use a placeholder if no image handler or image ID
-                image_url_to_edit = prod_mgr.image_handler.get_public_view_url(image_id_to_edit) if prod_mgr.image_handler and image_id_to_edit else "assets/no-image.png"
-                st.image(image_url_to_edit, width=150)
+                
+                # NEW: Securely display the image
+                display_image(image_id_to_edit, width=150)
                 
                 if image_id_to_edit:
-                    delete_image = st.checkbox("Xóa ảnh này và không thay thế", key=f"delete_img_{editing_product['id']}")
+                    delete_image = st.checkbox("Xóa ảnh này và không thay thế", key=f"delete_img_{editing_product['id']}" if editing_product else "delete_img_new")
 
                 image_file = st.file_uploader("Tải ảnh mới (chỉ 1 ảnh, để trống nếu không đổi)", type=['png', 'jpg', 'jpeg'])
 
@@ -81,7 +86,6 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                         if success:
                             st.success(msg)
                             st.session_state.editing_product_id = None
-                            st.cache_data.clear()
                             st.rerun()
                         else:
                             st.error(msg)
@@ -98,8 +102,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         st.info("Chưa có sản phẩm nào.")
         return
     
-    # Update how category names are fetched
-    cat_names = {c['id']: c['category_name'] for c in prod_mgr.get_all_category_items("ProductCategories")}
+    cat_names = {c['id']: c['category_name'] for c in prod_mgr.get_all_category_items("product_categories")}
 
     h_cols = st.columns([1, 1, 4, 2, 1, 2])
     h_cols[0].markdown("**SKU**")
@@ -114,8 +117,9 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         p_cols = st.columns([1, 1, 4, 2, 1, 2])
         p_cols[0].write(p['sku'])
         
-        image_url = prod_mgr.image_handler.get_public_view_url(p.get('image_id')) if prod_mgr.image_handler and p.get('image_id') else "assets/no-image.png"
-        p_cols[1].image(image_url, width=60)
+        # NEW: Securely display the image in the list
+        with p_cols[1]:
+            display_image(p.get('image_id'), width=60)
 
         p_cols[2].write(p['name'])
         p_cols[3].write(cat_names.get(p.get('category_id'), "N/A"))
@@ -146,7 +150,6 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                 with st.spinner("Đang xóa sản phẩm và ảnh liên quan..."):
                     prod_mgr.hard_delete_product(p['id'])
                 st.session_state.deleting_product_id = None
-                st.cache_data.clear()
                 st.rerun()
             if c2.button("Hủy bỏ", key=f"cancel_delete_{p['id']}"):
                 st.session_state.deleting_product_id = None

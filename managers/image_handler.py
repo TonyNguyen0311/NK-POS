@@ -3,20 +3,27 @@ import streamlit as st
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 import io
 from PIL import Image
 import logging
-import uuid
+from datetime import datetime
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def hash_image_handler(handler):
+    """A hash function for st.cache_data to handle the ImageHandler instance."""
+    return "ImageHandler_Singleton"
+
 class ImageHandler:
+    """Manages image operations with Google Drive, including uploading and private loading."""
     def __init__(self, credentials_info):
         self.drive_service = self._initialize_drive_service(credentials_info)
 
     def _initialize_drive_service(self, credentials_info):
+        """Initializes the Google Drive API service using OAuth credentials."""
         try:
             creds = Credentials(
                 None, 
@@ -32,83 +39,92 @@ class ImageHandler:
             st.error(f"Lỗi cấu hình Google Drive: {e}")
             return None
 
-    def _optimize_image(self, image_file, max_width=800, quality=85):
+    @st.cache_data(show_spinner=False, hash_funcs={object: hash_image_handler})
+    def load_drive_image(_self, file_id: str) -> bytes | None:
+        """
+        Loads a private image from Google Drive using its file_id.
+        The image data is returned as bytes, suitable for st.image().
+        This method is cached to prevent redundant downloads.
+        """
+        if not _self.drive_service or not file_id:
+            logger.warning("Drive service not initialized or file_id is missing for loading.")
+            return None
         try:
-            img = Image.open(image_file)
+            request = _self.drive_service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+            fh.seek(0)
+            return fh.getvalue()
+        except HttpError as error:
+            logger.error(f"Error loading image {file_id}: {error}")
+            return None
+
+    def upload_image(self, image_file, folder_id: str, base_filename: str) -> str | None:
+        """
+        Optimizes, and uploads an image to a specified Google Drive folder.
+        Returns the file_id of the newly created file.
+        """
+        if not self.drive_service:
+            st.error("Dịch vụ Google Drive chưa được khởi tạo.")
+            return None
+
+        # 1. Generate a unique filename
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_filename = f"{base_filename}_{timestamp}.jpg"
+
+        # 2. Optimize the image
+        try:
+            optimized_bytes = self._optimize_image(image_file, max_width=1024, quality=80)
+        except Exception as e:
+            st.error(f"Lỗi khi tối ưu hóa ảnh: {e}")
+            return None
+        
+        # 3. Upload the optimized image and get file_id
+        return self._upload_to_drive(folder_id, unique_filename, optimized_bytes)
+
+    def _optimize_image(self, image_file, max_width: int, quality: int) -> io.BytesIO:
+        """Resizes and compresses an image, returning it as a BytesIO object."""
+        with Image.open(image_file) as img:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
             if img.width > max_width:
                 ratio = max_width / float(img.width)
                 height = int(float(img.height) * ratio)
                 img = img.resize((max_width, height), Image.LANCZOS)
+            
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='JPEG', quality=quality, optimize=True)
             img_byte_arr.seek(0)
             return img_byte_arr
-        except Exception as e:
-            logger.error(f"Error optimizing image: {e}")
-            image_file.seek(0)
-            return image_file
 
-    def _upload_to_drive(self, folder_id, filename, image_bytes, update_existing=False):
-        if not self.drive_service:
-            raise Exception("Dịch vụ Google Drive chưa được khởi tạo.")
-
-        media = MediaIoBaseUpload(image_bytes, mimetype='image/jpeg', resumable=True)
-        
+    def _upload_to_drive(self, folder_id: str, filename: str, image_bytes: io.BytesIO) -> str | None:
+        """A private method to handle the file creation in Google Drive."""
         try:
-            file_id_to_update = None
-            if update_existing:
-                # NOTE: Searching by filename is kept for now, but it can be unreliable.
-                # A better approach is to pass the existing file_id when updating.
-                query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-                response = self.drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
-                if response.get('files'):
-                    file_id_to_update = response.get('files')[0].get('id')
-
-            if file_id_to_update:
-                request = self.drive_service.files().update(fileId=file_id_to_update, media_body=media, fields='id')
-                response = request.execute()
-                file_id = response.get('id')
-            else:
-                file_metadata = {'name': filename, 'parents': [folder_id]}
-                request = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id')
-                response = request.execute()
-                file_id = response.get('id')
+            file_metadata = {'name': filename, 'parents': [folder_id]}
+            media = MediaIoBaseUpload(image_bytes, mimetype='image/jpeg', resumable=True)
             
+            created_file = self.drive_service.files().create(
+                body=file_metadata, 
+                media_body=media, 
+                fields='id'
+            ).execute()
+            
+            file_id = created_file.get('id')
             if file_id:
-                self.drive_service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
-                # SUCCESS: Return the file_id as requested
+                logger.info(f"Successfully uploaded file '{filename}' with ID: {file_id}")
                 return file_id
+            else:
+                logger.error("Upload process did not return a file ID.")
+                return None
+        except HttpError as error:
+            logger.error(f"An HTTP error occurred during upload: {error}")
+            st.error(f"Lỗi khi tải ảnh lên Drive: {error}")
             return None
 
-        except HttpError as error:
-            logger.error(f"An HTTP error occurred: {error}")
-            raise Exception(f"Lỗi khi tải ảnh lên Drive: {error}")
-
-    def upload_product_image(self, image_file, folder_id, product_sku):
-        """Uploads a product image and returns the Google Drive file_id."""
-        filename = f"{product_sku}.jpg"
-        optimized_image_bytes = self._optimize_image(image_file, max_width=800, quality=85)
-        # This will now return file_id
-        return self._upload_to_drive(folder_id, filename, optimized_image_bytes, update_existing=True)
-
-    def upload_receipt_image(self, image_file, folder_id):
-        """Uploads a receipt image and returns the Google Drive file_id."""
-        filename = f"receipt_{uuid.uuid4().hex[:12]}.jpg"
-        optimized_image_bytes = self._optimize_image(image_file, max_width=1200, quality=80)
-        # This will now return file_id
-        return self._upload_to_drive(folder_id, filename, optimized_image_bytes, update_existing=False)
-
-    @staticmethod
-    def get_public_view_url(file_id):
-        """Constructs a public, direct view URL for a Google Drive file."""
-        if not file_id:
-            # Return path to local placeholder image
-            return "assets/no-image.png"
-        return f"https://drive.google.com/uc?id={file_id}"
-
-    def delete_image_by_id(self, file_id):
+    def delete_image_by_id(self, file_id: str):
         """Deletes a file from Google Drive using its file_id."""
         if not self.drive_service or not file_id:
             logger.warning("Drive service not initialized or file_id is missing. Cannot delete.")
@@ -118,6 +134,7 @@ class ImageHandler:
             logger.info(f"Deleted file with ID '{file_id}' from Drive.")
         except HttpError as e:
             if e.resp.status == 404:
-                logger.warning(f"Attempted to delete file with ID '{file_id}', but it was not found.")
+                logger.warning(f"Attempted to delete file ID '{file_id}', but it was not found.")
             else:
-                logger.error(f"Error deleting file with ID '{file_id}': {e}")
+                logger.error(f"Error deleting file ID '{file_id}': {e}")
+
