@@ -1,12 +1,13 @@
 
 import streamlit as st
 from managers.cost_manager import CostManager
+from ui._utils import render_page_title, render_section_header
 
 def render_cost_group_page(cost_mgr: CostManager):
     """
     Renders the page for managing cost groups, now including cost type (fixed/variable).
     """
-    st.header("⚙️ Danh mục Chi phí")
+    render_page_title("⚙️ Danh mục Chi phí")
     st.info("Phân loại các khoản chi phí vào các nhóm, đồng thời xác định chúng là Định phí (chi phí cố định, vd: thuê nhà) hay Biến phí (chi phí thay đổi theo doanh thu, vd: hoa hồng).")
 
     # Initialize session state for editing
@@ -14,7 +15,7 @@ def render_cost_group_page(cost_mgr: CostManager):
         st.session_state.editing_group_id = None
 
     # --- FORM ĐỂ THÊM NHÓM MỚI ---
-    st.subheader("Thêm Nhóm chi phí mới")
+    render_section_header("Thêm Nhóm chi phí mới")
     with st.form("add_group_form", clear_on_submit=True):
         new_group_name = st.text_input("Tên nhóm chi phí")
         group_type_display = st.selectbox("Loại chi phí", ["Định phí", "Biến phí"], help="**Định phí**: Chi phí cố định không thay đổi theo mức độ hoạt động. **Biến phí**: Chi phí thay đổi khi mức độ hoạt động thay đổi.")
@@ -33,7 +34,7 @@ def render_cost_group_page(cost_mgr: CostManager):
 
     st.divider()
 
-    st.subheader("Các Nhóm chi phí hiện có")
+    render_section_header("Các Nhóm chi phí hiện có")
     try:
         cost_groups = cost_mgr.get_cost_groups()
         if not cost_groups:

@@ -10,7 +10,7 @@ from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
 
 # Import UI utils and formatters
-from ui._utils import render_page_title
+from ui._utils import render_page_title, render_section_header, render_sub_header
 from utils.formatters import format_currency, format_number
 
 def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
@@ -89,26 +89,26 @@ def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, aut
     selected_branch_ids = st.session_state.selected_branch_ids
 
     with st.spinner("Đang xử lý và tải dữ liệu báo cáo..."):
-        # --- BÁO CÁO DOANH THU ---
+        # --- BÁO CÁO DOANH THU -- -
         if report_type == "Báo cáo Doanh thu":
             start_datetime = datetime.combine(st.session_state.start_date, datetime.min.time())
             end_datetime = datetime.combine(st.session_state.end_date, datetime.max.time())
             success, data, message = report_mgr.get_revenue_report(start_datetime, end_datetime, selected_branch_ids)
             if success and data:
-                st.subheader("Tổng quan Doanh thu")
+                render_section_header("Tổng quan Doanh thu")
                 kpi_cols = st.columns(4)
                 kpi_cols[0].metric("Tổng Doanh thu", format_currency(data.get('total_revenue', 0)))
                 kpi_cols[1].metric("Tổng Lợi nhuận gộp", format_currency(data.get('total_profit', 0)))
                 kpi_cols[2].metric("Số lượng hóa đơn", format_number(data.get('total_orders', 0)))
                 kpi_cols[3].metric("Giá trị/hóa đơn", format_currency(data.get('average_order_value', 0)))
                 st.divider()
-                st.write("**Biểu đồ doanh thu theo ngày**")
+                render_sub_header("Biểu đồ doanh thu theo ngày")
                 revenue_df = data.get('revenue_by_day')
                 if revenue_df is not None and not revenue_df.empty:
                     st.line_chart(revenue_df)
                 else:
                     st.info("Không có dữ liệu doanh thu trong khoảng thời gian này.")
-                st.write("**Top 5 sản phẩm bán chạy nhất (theo doanh thu)**")
+                render_sub_header("Top 5 sản phẩm bán chạy nhất (theo doanh thu)")
                 top_products_df = data.get('top_products_by_revenue')
                 if top_products_df is not None and not top_products_df.empty:
                     st.dataframe(top_products_df.style.format({'Doanh thu': format_currency, 'Lợi nhuận': format_currency, 'Số lượng': format_number}), use_container_width=True)
@@ -117,26 +117,26 @@ def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, aut
             else:
                 st.error(f"Lỗi khi lấy báo cáo: {message}")
 
-        # --- BÁO CÁO TỒN KHO ---
+        # --- BÁO CÁO TỒN KHO -- -
         elif report_type == "Báo cáo Tồn kho":
             result = report_mgr.get_inventory_report(selected_branch_ids)
             if result["success"] and result.get("data"):
                 report_data = result["data"]
-                st.subheader("Tổng quan Tồn kho")
+                render_section_header("Tổng quan Tồn kho")
                 kpi_cols = st.columns(2)
                 kpi_cols[0].metric("Tổng giá trị tồn kho", format_currency(report_data.get('total_inventory_value', 0)))
                 kpi_cols[1].metric("Tổng số lượng sản phẩm", format_number(report_data.get('total_inventory_items', 0)))
                 st.divider()
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.write("**Top 10 sản phẩm giá trị tồn kho cao nhất**")
+                    render_sub_header("Top 10 sản phẩm giá trị tồn kho cao nhất")
                     top_prod_df = report_data.get('top_products_by_value_df')
                     if top_prod_df is not None and not top_prod_df.empty:
                         st.dataframe(top_prod_df.style.format({'total_value': format_currency, 'total_quantity': format_number}), use_container_width=True)
                     else:
                         st.info("Không có dữ liệu.")
                 with col2:
-                    st.write("**Cảnh báo: Sản phẩm sắp hết hàng (<10)**")
+                    render_sub_header("Cảnh báo: Sản phẩm sắp hết hàng (<10)")
                     low_stock_df = report_data.get('low_stock_items_df')
                     if low_stock_df is not None and not low_stock_df.empty:
                         st.dataframe(low_stock_df[['product_name', 'quantity', 'branch_id']].rename(columns={'product_name': 'Tên sản phẩm', 'quantity': 'Tồn kho', 'branch_id': 'Chi nhánh'}), use_container_width=True)
@@ -150,7 +150,7 @@ def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, aut
             else:
                 st.error(f"Lỗi khi tạo báo cáo tồn kho: {result.get('message')}")
 
-        # --- PHÂN TÍCH LỢI NHUẬN ---
+        # --- PHÂN TÍCH LỢI NHUẬN -- -
         elif report_type == "Phân tích Lợi nhuận":
             start_datetime = datetime.combine(st.session_state.start_date, datetime.min.time())
             end_datetime = datetime.combine(st.session_state.end_date, datetime.max.time())
@@ -159,17 +159,17 @@ def render_report_page(report_mgr: ReportManager, branch_mgr: BranchManager, aut
                 report_data = result['data']
                 product_df = report_data['product_profit_df']
                 category_df = report_data['category_profit_df']
-                st.subheader("Phân tích Lợi nhuận")
+                render_section_header("Phân tích Lợi nhuận")
                 tab1, tab2 = st.tabs(["Lợi nhuận theo Sản phẩm", "Lợi nhuận theo Danh mục"])
                 with tab1:
-                    st.write("#### Top 10 sản phẩm lợi nhuận cao nhất")
+                    render_sub_header("Top 10 sản phẩm lợi nhuận cao nhất")
                     top_10_profit_products = product_df.head(10)
                     fig = px.bar(top_10_profit_products, x='product_name', y='total_profit', title="Lợi nhuận theo sản phẩm", labels={'product_name':'Sản phẩm', 'total_profit':'Lợi nhuận'})
                     st.plotly_chart(fig, use_container_width=True)
                     with st.expander("Xem chi tiết lợi nhuận theo sản phẩm"):
                         st.dataframe(product_df.style.format({'total_revenue': format_currency, 'total_profit': format_currency, 'total_quantity_sold': format_number, 'profit_margin': '{:.2f}%'}), use_container_width=True)
                 with tab2:
-                    st.write("#### Phân bổ lợi nhuận theo danh mục")
+                    render_sub_header("Phân bổ lợi nhuận theo danh mục")
                     fig_cat = px.pie(category_df, names='category_name', values='total_profit', title="Tỷ trọng lợi nhuận theo danh mục")
                     st.plotly_chart(fig_cat, use_container_width=True)
                     st.dataframe(category_df.style.format({'total_revenue': format_currency, 'total_profit': format_currency, 'profit_margin': '{:.2f}%'}), use_container_width=True)

@@ -3,9 +3,10 @@ import streamlit as st
 import pandas as pd
 from managers.product_manager import ProductManager
 from managers.cost_manager import CostManager
+from ui._utils import render_page_title, render_section_header, render_sub_header
 
 def render_categories_page(product_manager: ProductManager, cost_manager: CostManager):
-    st.header("Thiết lập Danh mục")
+    render_page_title("Thiết lập Danh mục")
 
     tab1, tab2, tab3 = st.tabs(["Danh mục sản phẩm", "Đơn vị tính", "Nhóm chi phí"])
 
@@ -37,7 +38,7 @@ def render_categories_page(product_manager: ProductManager, cost_manager: CostMa
         )
 
 def render_generic_category_ui(manager, title, collection_name, field_name, column_name):
-    st.subheader(f"Quản lý {title}")
+    render_section_header(f"Quản lý {title}")
 
     # --- Form to add new item ---
     with st.expander(f"Thêm {title} mới"):
@@ -62,7 +63,7 @@ def render_generic_category_ui(manager, title, collection_name, field_name, colu
         df = pd.DataFrame(items)
         df = df.rename(columns={field_name: column_name, "id": "ID"})
         
-        st.write(f"Danh sách {title} hiện có:")
+        render_sub_header(f"Danh sách {title} hiện có:")
 
         for index, row in df.iterrows():
             col1, col2, col3 = st.columns([3, 1, 1])

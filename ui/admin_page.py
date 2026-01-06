@@ -3,10 +3,10 @@ import streamlit as st
 
 from managers.admin_manager import AdminManager
 from managers.auth_manager import AuthManager
+from ui._utils import render_page_title, render_section_header
 
 def render_admin_page(admin_mgr: AdminManager, auth_mgr: AuthManager):
-    st.set_page_config(layout="wide")
-    st.title("👨‍💻 Khu vực Quản trị")
+    render_page_title("👨‍💻 Khu vực Quản trị")
 
     # --- Security Check ---
     user_info = auth_mgr.get_current_user_info()
@@ -19,7 +19,7 @@ def render_admin_page(admin_mgr: AdminManager, auth_mgr: AuthManager):
     st.divider()
 
     # --- Inventory Data Management Section ---
-    st.subheader("🗑️ Quản lý Dữ liệu Kho")
+    render_section_header("🗑️ Quản lý Dữ liệu Kho")
     st.markdown("Chức năng này sẽ xoá **TOÀN BỘ** dữ liệu trong các collection sau: `inventory`, `inventory_vouchers`, và `inventory_transactions`. Dữ liệu này sẽ bị xoá vĩnh viễn.")
 
     if 'confirm_delete' not in st.session_state:
@@ -62,5 +62,4 @@ def render_admin_page(admin_mgr: AdminManager, auth_mgr: AuthManager):
         if col2.button("KHÔNG, HỦY BỎ", on_click=toggle_confirm):
             st.session_state.confirm_delete = False
             st.rerun()
-
 

@@ -3,12 +3,13 @@
 import streamlit as st
 
 # Import the render functions from their new modules
+from ui._utils import render_page_title
 from ui.transfer_create_tab import render_create_transfer_form
 from ui.transfer_outgoing_tab import render_outgoing_transfers
 from ui.transfer_incoming_tab import render_incoming_transfers
 
 def show_stock_transfer_page(branch_manager, inventory_manager, product_manager, auth_manager):
-    st.title("Luân chuyển hàng hóa")
+    render_page_title("Luân chuyển hàng hóa")
 
     user_info = auth_manager.get_current_user_info()
     if not user_info:

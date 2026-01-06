@@ -6,9 +6,9 @@ body {
 
 /* Page Title */
 .page-title {
-    font-size: 2.5em;
+    font-size: 2.2em; /* Adjusted for better balance */
     font-weight: bold;
-    color: #1E88E5; /* A nice blue color */
+    color: #1E88E5; /* Primary blue color */
     padding-bottom: 10px;
     border-bottom: 2px solid #EEEEEE;
     margin-bottom: 20px;
@@ -16,7 +16,7 @@ body {
 
 /* Section Header */
 .section-header {
-    font-size: 1.8em;
+    font-size: 1.6em; /* Adjusted */
     font-weight: 600;
     color: #424242;
     margin-top: 25px;
@@ -25,14 +25,31 @@ body {
 
 /* Sub-header */
 .sub-header {
-    font-size: 1.4em;
+    font-size: 1.3em; /* Adjusted */
     font-weight: 500;
     color: #616161;
     margin-top: 15px;
     margin-bottom: 10px;
 }
 
-/* Custom button styles to make them more prominent */
+/* --- Consistent Input Fields --- */
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+    border-radius: 8px !important;
+    border: 1px solid #BDBDBD !important;
+    transition: all 0.3s ease-in-out;
+}
+
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stNumberInput"] input:focus,
+div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within {
+    border-color: #1E88E5 !important;
+    box-shadow: 0 0 0 2px #90CAF9 !important;
+}
+
+
+/* --- Custom Button Styles --- */
 div[data-testid="stButton"] > button {
     border-radius: 8px;
     padding: 10px 20px;
@@ -54,10 +71,11 @@ div[data-testid="stButton"] > button:focus {
     outline: none;
 }
 
-/* Style for info boxes to make them stand out */
+/* --- Custom Alert/Notification Styles --- */
 div[data-testid="stAlert"] {
     border-radius: 8px;
     border-left: 5px solid;
+    background-color: #F5F5F5; /* Light grey background */
 }
 
 div[data-testid="stAlert"][data-baseweb="notification-positive"] {
@@ -74,4 +92,26 @@ div[data-testid="stAlert"][data-baseweb="notification-warning"] {
 
 div[data-testid="stAlert"][data-baseweb="notification-negative"] {
     border-left-color: #F44336; /* Red for error */
+}
+
+/* --- Dataframe and Table Styles --- */
+.stDataFrame, .stTable {
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+}
+
+/* --- Mobile Responsiveness --- */
+@media (max-width: 640px) {
+    .page-title {
+        font-size: 1.8em;
+    }
+    .section-header {
+        font-size: 1.4em;
+    }
+    .sub-header {
+        font-size: 1.1em;
+    }
+    div[data-testid="stButton"] > button {
+        width: 100%; /* Make buttons full-width on mobile */
+    }
 }

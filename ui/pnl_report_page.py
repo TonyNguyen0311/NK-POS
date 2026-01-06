@@ -3,10 +3,11 @@ import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
+from ui._utils import render_page_title, render_section_header
 from utils.formatters import format_currency, format_number
 
 def render_pnl_report_page(report_mgr, branch_mgr, auth_mgr):
-    st.header("📈 Báo cáo Kết quả Kinh doanh (P&L)")
+    render_page_title("📈 Báo cáo Kết quả Kinh doanh (P&L)")
     st.info("Báo cáo này tổng hợp doanh thu, giá vốn và chi phí để tính toán lợi nhuận gộp và lợi nhuận ròng trong một khoảng thời gian tùy chọn.")
 
     # --- 1. FILTERS ---
@@ -64,7 +65,7 @@ def render_pnl_report_page(report_mgr, branch_mgr, auth_mgr):
             st.markdown("---")
             
             # --- 3. DISPLAY CHARTS & DETAILS ---
-            st.subheader("Phân tích Chi phí Hoạt động (OPEX)")
+            render_section_header("Phân tích Chi phí Hoạt động (OPEX)")
             
             if pnl_data['total_operating_expenses'] == 0:
                 st.info("Không phát sinh chi phí hoạt động trong kỳ báo cáo.")

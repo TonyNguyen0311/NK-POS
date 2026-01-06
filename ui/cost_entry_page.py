@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from managers.cost_manager import CostManager
 from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
-from ui._utils import render_page_title, render_branch_selector
+from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector
 from utils.formatters import format_currency, format_number
 
 # --- Dialog for viewing receipt ---
@@ -39,6 +39,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     tab1, tab2 = st.tabs(["Ghi nhận Chi phí mới", "Lịch sử & Quản lý Chi phí"])
 
     with tab1:
+        render_section_header("Ghi nhận chi phí mới")
         with st.form("new_cost_entry_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
@@ -55,6 +56,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
             
             st.divider()
 
+            render_sub_header("Phân loại và khấu hao")
             classification_display = st.selectbox(
                 "Phân loại", 
                 ["Chi phí hoạt động (OPEX)", "Chi phí vốn (CAPEX)"],
@@ -90,6 +92,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                             st.error(f"Lỗi: {e}")
 
     with tab2:
+        render_section_header("Lịch sử và quản lý chi phí")
         with st.expander("Bộ lọc", expanded=True):
             f_c1, f_c2, f_c3 = st.columns(3)
             today = datetime.now()
@@ -134,48 +137,48 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
 
                 st.write(f"Tìm thấy {format_number(len(df))} mục chi phí.")
                 for index, row in df.iterrows():
-                    st.markdown("---")
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    with c1:
-                        st.markdown(f"**{row['name']}**")
-                        st.markdown(f"*{row.get('group_name', 'N/A')}* - {row.get('branch_name', 'N/A')}")
-                        if row.get('classification') == 'CAPEX':
-                             st.info(f"CAPEX / Khấu hao {row.get('amortize_months', 0)} tháng" if row.get('is_amortized') else "CAPEX", icon="📊")
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        with c1:
+                            st.markdown(f"**{row['name']}**")
+                            st.markdown(f"*{row.get('group_name', 'N/A')}* - {row.get('branch_name', 'N/A')}")
+                            if row.get('classification') == 'CAPEX':
+                                st.info(f"CAPEX / Khấu hao {row.get('amortize_months', 0)} tháng" if row.get('is_amortized') else "CAPEX", icon="📊")
 
-                    with c2:
-                        st.markdown(f"**{format_currency(row['amount'], 'đ')}**")
-                        st.caption(f"Ngày: {row['entry_date']}")
-                    with c3:
-                        if row.get('receipt_url'):
-                            if st.button("Xem ảnh", key=f"view_receipt_{row['id']}", use_container_width=True):
-                                st.session_state.viewing_receipt_url = row['receipt_url']
-                                st.rerun()
-                    
-                    can_cancel = (user_role in ['admin', 'manager']) or (user_role == 'staff' and row['created_by'] == user['uid'])
-                    can_delete = user_role == 'admin'
-                    
-                    if can_cancel or can_delete:
-                        btn_c1, btn_c2 = st.columns(2)
-                        if can_cancel:
-                            if btn_c1.button("Hủy phiếu", key=f"cancel_{row['id']}", use_container_width=True):
-                                cost_mgr.cancel_cost_entry(row['id'], user['uid'])
-                                st.success(f"Đã hủy phiếu chi '{row['name']}'.")
-                                st.rerun()
+                        with c2:
+                            st.markdown(f"**{format_currency(row['amount'], 'đ')}**")
+                            st.caption(f"Ngày: {row['entry_date']}")
+                        with c3:
+                            if row.get('receipt_url'):
+                                if st.button("Xem ảnh", key=f"view_receipt_{row['id']}", use_container_width=True):
+                                    st.session_state.viewing_receipt_url = row['receipt_url']
+                                    st.rerun()
+                        
+                        can_cancel = (user_role in ['admin', 'manager']) or (user_role == 'staff' and row['created_by'] == user['uid'])
+                        can_delete = user_role == 'admin'
+                        
+                        if can_cancel or can_delete:
+                            btn_c1, btn_c2 = st.columns(2)
+                            if can_cancel:
+                                if btn_c1.button("Hủy phiếu", key=f"cancel_{row['id']}", use_container_width=True):
+                                    cost_mgr.cancel_cost_entry(row['id'], user['uid'])
+                                    st.success(f"Đã hủy phiếu chi '{row['name']}'.")
+                                    st.rerun()
 
-                        if can_delete:
-                            if f"delete_confirm_{row['id']}" not in st.session_state:
-                                st.session_state[f"delete_confirm_{row['id']}" ] = False
-                            
-                            if st.session_state[f"delete_confirm_{row['id']}" ]:
-                                if btn_c2.button("❌ XÁC NHẬN XÓA", key=f"confirm_delete_{row['id']}", use_container_width=True, type="primary"):
-                                    cost_mgr.hard_delete_cost_entry(row['id'])
-                                    st.warning(f"Đã XÓA VĨNH VIỄN phiếu chi '{row['name']}'.")
-                                    del st.session_state[f"delete_confirm_{row['id']}" ]
-                                    st.rerun()
-                            else:
-                                if btn_c2.button("Xóa vĩnh viễn", key=f"delete_{row['id']}", use_container_width=True):
-                                    st.session_state[f"delete_confirm_{row['id']}" ] = True
-                                    st.rerun()
+                            if can_delete:
+                                if f"delete_confirm_{row['id']}" not in st.session_state:
+                                    st.session_state[f"delete_confirm_{row['id']}" ] = False
+                                
+                                if st.session_state[f"delete_confirm_{row['id']}" ]:
+                                    if btn_c2.button("❌ XÁC NHẬN XÓA", key=f"confirm_delete_{row['id']}", use_container_width=True, type="primary"):
+                                        cost_mgr.hard_delete_cost_entry(row['id'])
+                                        st.warning(f"Đã XÓA VĨNH VIỄN phiếu chi '{row['name']}'.")
+                                        del st.session_state[f"delete_confirm_{row['id']}" ]
+                                        st.rerun()
+                                else:
+                                    if btn_c2.button("Xóa vĩnh viễn", key=f"delete_{row['id']}", use_container_width=True):
+                                        st.session_state[f"delete_confirm_{row['id']}" ] = True
+                                        st.rerun()
 
         except Exception as e:
             st.error(f"Lỗi khi tải lịch sử chi phí: {e}")

@@ -1,9 +1,10 @@
 # ui/transfer_outgoing_tab.py
 import streamlit as st
 from datetime import datetime
+from ui._utils import render_section_header
 
 def render_outgoing_transfers(branch_id, all_branches_map, inventory_manager, user_id):
-    st.header("Phiếu Chuyển Đi")
+    render_section_header("Phiếu Chuyển Đi")
     
     status_filter = st.selectbox(
         "Lọc theo trạng thái", 

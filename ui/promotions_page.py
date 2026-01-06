@@ -6,7 +6,7 @@ from datetime import date, datetime
 from managers.promotion_manager import PromotionManager
 from managers.product_manager import ProductManager
 from managers.branch_manager import BranchManager
-from ui._utils import render_page_title
+from ui._utils import render_page_title, render_section_header, render_sub_header
 
 def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: ProductManager, branch_mgr: BranchManager):
     render_page_title("Quản lý Khuyến mãi")
@@ -27,7 +27,7 @@ def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: Product
             start_date = c1.date_input("Ngày bắt đầu", value=date.today())
             end_date = c2.date_input("Ngày kết thúc", value=date(date.today().year, 12, 31))
 
-            st.write("**Phạm vi áp dụng:**")
+            render_sub_header("Phạm vi áp dụng")
             scope_type = st.selectbox(
                 "Loại phạm vi", 
                 options=["ALL", "CATEGORY", "PRODUCT"],
@@ -39,13 +39,13 @@ def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: Product
             elif scope_type == "PRODUCT":
                 scope_ids = st.multiselect("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options.get(x, x))
 
-            st.write("**Quy tắc giảm giá:**")
+            render_sub_header("Quy tắc giảm giá")
             c1, c2 = st.columns(2)
             auto_discount = c1.number_input("Giảm giá tự động (%)", 0, 100, 10)
             manual_limit = c2.number_input("Giảm thêm thủ công tối đa (%)", 0, 100, 5, help="Giới hạn cho nhân viên khi giảm giá thêm trên tổng hóa đơn.")
             
-            st.write("**Ràng buộc:**")
-            min_margin = st.number_input("Biên lợi nhuận tối thiểu bắt buộc (%)", 0, 100, 10, help="Hệ thống sẽ không cho phép bán nếu giá sau giảm khiến lợi nhuận thấp hơn mức này.")
+            render_sub_header("Ràng buộc")
+            min_margin = st.number_input("Biên lợi nhuận tối thiểu bắt buộc (%)", 0, 100, 10, help="Hệ thống sẽ không cho phép bán nếu giá sau giảm khiên lợi nhuận thấp hơn mức này.")
 
             submitted_create = st.form_submit_button("Lưu Chương trình", type="primary", use_container_width=True)
 
@@ -81,7 +81,7 @@ def render_promotions_page(promotion_mgr: PromotionManager, product_mgr: Product
     st.divider()
 
     # --- HIỂN THỊ CÁC CHƯƠNG TRÌNH ĐÃ LƯU ---
-    st.subheader("Danh sách các chương trình đã lưu")
+    render_section_header("Danh sách các chương trình đã lưu")
     
     def format_scope(scope, product_map, category_map):
         scope_type = scope.get("type", "N/A")

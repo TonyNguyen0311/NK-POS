@@ -2,7 +2,7 @@
 import streamlit as st
 from managers.auth_manager import AuthManager
 from managers.branch_manager import BranchManager
-from ui._utils import render_page_title
+from ui._utils import render_page_title, render_section_header, render_sub_header
 
 # --- Constants and Configuration ---
 ROLES = ['staff', 'supervisor', 'manager', 'admin']
@@ -45,7 +45,7 @@ def can_perform_action(current_user_role, target_user_role, is_self):
 # --- UI Dialogs ---
 @st.dialog("Sửa thông tin Người dùng")
 def show_edit_user_dialog(user_data, auth_mgr: AuthManager, branch_mgr: BranchManager):
-    st.subheader(f"Chỉnh sửa: {user_data.get('display_name')}")
+    render_sub_header(f"Chỉnh sửa: {user_data.get('display_name')}")
     current_user_role = _get_safe_role(auth_mgr.get_current_user_info())
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches(active_only=False)}
 
@@ -250,5 +250,5 @@ def render_user_management_page(auth_mgr: AuthManager, branch_mgr: BranchManager
         with st.expander("＋ Tạo Người dùng mới"):
             render_create_user_form(auth_mgr, branch_mgr)
     st.divider()
-    st.subheader("Danh sách Người dùng")
+    render_section_header("Danh sách Người dùng")
     render_user_list(all_users, current_user, auth_mgr, branch_mgr)

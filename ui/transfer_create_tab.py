@@ -1,9 +1,10 @@
 
 import streamlit as st
 from datetime import datetime
+from ui._utils import render_section_header, render_sub_header
 
 def render_create_transfer_form(from_branch_id, all_branches, inventory_manager, product_manager, user_id):
-    st.header("Tạo Phiếu Luân Chuyển")
+    render_section_header("Tạo Phiếu Luân Chuyển")
 
     # Lấy danh sách chi nhánh có thể luân chuyển đến (loại trừ chi nhánh hiện tại)
     other_branches = [b for b in all_branches if b['id'] != from_branch_id]
@@ -35,7 +36,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
             format_func=lambda bid: next((b.get('name', bid) for b in other_branches if b['id'] == bid), bid)
         )
         
-        st.subheader("Danh sách sản phẩm cần chuyển")
+        render_sub_header("Danh sách sản phẩm cần chuyển")
         
         st.session_state.transfer_items = st.session_state.get('transfer_items', [])
         # Hiển thị các sản phẩm đã thêm

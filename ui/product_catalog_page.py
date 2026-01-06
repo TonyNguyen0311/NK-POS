@@ -3,9 +3,10 @@ import streamlit as st
 import pandas as pd
 from managers.product_manager import ProductManager
 from managers.auth_manager import AuthManager
+from ui._utils import render_page_title, render_section_header
 
 def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager):
-    st.header("🗂️ Quản lý Sản phẩm")
+    render_page_title("🗂️ Quản lý Sản phẩm")
 
     user_info = auth_mgr.get_current_user_info()
     if not user_info:
@@ -90,8 +91,8 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                     st.rerun()
     
     st.divider()
-    st.subheader("Toàn bộ sản phẩm trong danh mục")
-    products = prod_mgr.get_all_products(active_only=False) # FIX: Changed show_inactive=True to active_only=False
+    render_section_header("Toàn bộ sản phẩm trong danh mục")
+    products = prod_mgr.get_all_products(active_only=False)
 
     if not products:
         st.info("Chưa có sản phẩm nào.")

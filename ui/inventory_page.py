@@ -10,7 +10,7 @@ from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
 
 # Import formatters and UI utils
-from ui._utils import render_page_title, render_branch_selector
+from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector
 from utils.formatters import format_number, format_currency
 
 def init_session_state():
@@ -65,8 +65,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
 
     # --- TAB 1: CURRENT INVENTORY ---
     if st.session_state.active_inventory_tab == "📊 Tình hình Tồn kho":
-        st.subheader(f"Tồn kho hiện tại của: {allowed_branches_map[selected_branch]}")
-        # (Content is the same as before)
+        render_section_header(f"Tồn kho hiện tại của: {allowed_branches_map[selected_branch]}")
         if not branch_inventory:
             st.info("Chưa có sản phẩm nào trong kho của chi nhánh này.")
         else:
@@ -97,7 +96,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
 
     # --- TAB 2: VOUCHER CREATION ---
     elif st.session_state.active_inventory_tab == "📝 Tạo Chứng từ":
-        st.subheader("Tạo Chứng từ Kho")
+        render_section_header("Tạo Chứng từ Kho")
         
         voucher_type = st.radio(
             "Chọn loại chứng từ:", ["Phiếu Nhập hàng", "Phiếu Điều chỉnh kho"],
@@ -106,9 +105,8 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
         )
         st.session_state.voucher_type = voucher_type
 
-        # (Rest of the tab content is the same)
         with st.form("add_item_form", clear_on_submit=True):
-            st.write("**Thêm sản phẩm vào chứng từ**")
+            render_sub_header("Thêm sản phẩm vào chứng từ")
             c1, c2 = st.columns([2, 1])
             selected_sku = c1.selectbox("Chọn sản phẩm", options=list(product_options.keys()), format_func=lambda x: product_options.get(x, x), key="item_sku")
             
@@ -133,13 +131,13 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
         st.divider()
 
         if st.session_state.voucher_items:
-            st.write("**Các sản phẩm trong phiếu:**")
+            render_sub_header("Các sản phẩm trong phiếu:")
             df_items = pd.DataFrame(st.session_state.voucher_items)
             st.dataframe(df_items, use_container_width=True, hide_index=True)
 
             with st.form("create_voucher_form"):
                 if voucher_type == "Phiếu Nhập hàng":
-                    st.subheader("Thông tin Phiếu Nhập hàng")
+                    render_sub_header("Thông tin Phiếu Nhập hàng")
                     c1, c2 = st.columns(2)
                     receipt_date = c1.date_input("Ngày nhập hàng", value=datetime.now(), help="Ngày chứng từ có hiệu lực. Mặc định là hôm nay.")
                     supplier = c2.text_input("Nhà cung cấp")
@@ -154,7 +152,6 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         st.rerun()
 
                     if submit_button:
-                        # Logic remains the same
                         with st.spinner("Đang tạo phiếu nhập hàng..."):
                             try:
                                 voucher_id = inv_mgr.create_goods_receipt(
@@ -169,7 +166,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                                 st.error(f"Lỗi khi tạo phiếu nhập: {e}")
 
                 else: 
-                    st.subheader("Thông tin Phiếu Điều chỉnh kho")
+                    render_sub_header("Thông tin Phiếu Điều chỉnh kho")
                     c1, c2 = st.columns(2)
                     adjustment_date = c1.date_input("Ngày điều chỉnh", value=datetime.now(), help="Ngày chứng từ có hiệu lực. Mặc định là hôm nay.")
                     reason = c2.selectbox("Lý do điều chỉnh", ["Kiểm kê định kỳ", "Hàng hỏng", "Mất mát", "Khác"])
@@ -184,7 +181,6 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         st.rerun()
 
                     if submit_button:
-                        # Logic remains the same
                         with st.spinner("Đang tạo phiếu điều chỉnh..."):
                             try:
                                 voucher_id = inv_mgr.create_adjustment(
@@ -205,50 +201,49 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
 
     # --- TAB 3: VOUCHER HISTORY ---
     elif st.session_state.active_inventory_tab == "📜 Lịch sử Chứng từ":
-        st.subheader("Lịch sử Chứng từ Kho")
+        render_section_header("Lịch sử Chứng từ Kho")
         vouchers = inv_mgr.get_vouchers_by_branch(branch_id=selected_branch, limit=100)
 
         if not vouchers:
             st.info("Chưa có chứng từ nào cho chi nhánh này.")
         else:
             for voucher in vouchers:
-                voucher_id = voucher['id']
-                voucher_type_display = voucher['type'].replace('_', ' ').title()
-                voucher_status = voucher['status']
-                
-                header_cols = st.columns([3, 2, 1, 1])
-                header_cols[0].markdown(f"**ID:** `{voucher_id}`")
-                header_cols[1].markdown(f"**Loại:** {voucher_type_display}")
+                with st.container(border=True):
+                    voucher_id = voucher['id']
+                    voucher_type_display = voucher['type'].replace('_', ' ').title()
+                    voucher_status = voucher['status']
+                    
+                    header_cols = st.columns([3, 2, 1, 1])
+                    header_cols[0].markdown(f"**ID:** `{voucher_id}`")
+                    header_cols[1].markdown(f"**Loại:** {voucher_type_display}")
 
-                # Safely handle timezone-aware and naive datetimes
-                created_at_dt = pd.to_datetime(voucher['created_at'])
-                if created_at_dt.tzinfo is None:
-                    created_at_dt = created_at_dt.tz_localize('Asia/Ho_Chi_Minh')
-                else:
-                    created_at_dt = created_at_dt.tz_convert('Asia/Ho_Chi_Minh')
+                    created_at_dt = pd.to_datetime(voucher['created_at'])
+                    if created_at_dt.tzinfo is None:
+                        created_at_dt = created_at_dt.tz_localize('Asia/Ho_Chi_Minh')
+                    else:
+                        created_at_dt = created_at_dt.tz_convert('Asia/Ho_Chi_Minh')
 
-                header_cols[2].markdown(f"**Ngày:** {created_at_dt.strftime('%d/%m/%Y')}")
+                    header_cols[2].markdown(f"**Ngày:** {created_at_dt.strftime('%d/%m/%Y')}")
 
-                if voucher_status == 'CANCELLED':
-                    header_cols[3].error("Đã Huỷ")
-                else:
-                    header_cols[3].success("Hoàn thành")
+                    if voucher_status == 'CANCELLED':
+                        header_cols[3].error("Đã Huỷ")
+                    else:
+                        header_cols[3].success("Hoàn thành")
 
-                with st.expander("Xem chi tiết"):
-                    st.markdown(f"**Người tạo:** `{voucher['created_by']}`")
-                    st.markdown(f"**Ghi chú:** *{voucher.get('notes', 'Không có')}*")
-                    if 'supplier' in voucher: st.markdown(f"**Nhà cung cấp:** {voucher['supplier']}")
-                    st.write("**Sản phẩm trong chứng từ:**")
-                    st.dataframe(pd.DataFrame(voucher['items']), use_container_width=True, hide_index=True)
+                    with st.expander("Xem chi tiết"):
+                        st.markdown(f"**Người tạo:** `{voucher['created_by']}`")
+                        st.markdown(f"**Ghi chú:** *{voucher.get('notes', 'Không có')}*")
+                        if 'supplier' in voucher: st.markdown(f"**Nhà cung cấp:** {voucher['supplier']}")
+                        render_sub_header("Sản phẩm trong chứng từ:")
+                        st.dataframe(pd.DataFrame(voucher['items']), use_container_width=True, hide_index=True)
 
-                    if user_role == 'admin' and voucher_status != 'CANCELLED':
-                        st.write("---")
-                        st.error("Khu vực nguy hiểm (chỉ Admin)")
-                        if st.button(f"🚨 Huỷ Chứng từ này", key=f"cancel_{voucher_id}", help=f"Hành động này sẽ đảo ngược toàn bộ giao dịch của chứng từ {voucher_id}. Không thể hoàn tác."):
-                            try:
-                                with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."):
-                                    inv_mgr.cancel_voucher(voucher_id, user_info['uid'])
-                                    st.success(f"Đã huỷ thành công chứng từ {voucher_id}. Tải lại trang để cập nhật.")
-                                    st.rerun()
-                            except Exception as e: st.error(f"Lỗi khi huỷ chứng từ: {e}")
-                st.divider()
+                        if user_role == 'admin' and voucher_status != 'CANCELLED':
+                            st.divider()
+                            st.error("Khu vực nguy hiểm (chỉ Admin)")
+                            if st.button(f"🚨 Huỷ Chứng từ này", key=f"cancel_{voucher_id}", help=f"Hành động này sẽ đảo ngược toàn bộ giao dịch của chứng từ {voucher_id}. Không thể hoàn tác."):
+                                try:
+                                    with st.spinner(f"Đang huỷ chứng từ {voucher_id}..."):
+                                        inv_mgr.cancel_voucher(voucher_id, user_info['uid'])
+                                        st.success(f"Đã huỷ thành công chứng từ {voucher_id}. Tải lại trang để cập nhật.")
+                                        st.rerun()
+                                except Exception as e: st.error(f"Lỗi khi huỷ chứng từ: {e}")

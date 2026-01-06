@@ -9,11 +9,12 @@ from managers.branch_manager import BranchManager
 from managers.product_manager import ProductManager
 from managers.price_manager import PriceManager
 
-# Import shared formatters
+# Import UI utils
+from ui._utils import render_page_title, render_section_header
 from utils.formatters import format_currency, parse_currency
 
 def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManager, prod_mgr: ProductManager, price_mgr: PriceManager):
-    st.header("🛍️ Sản phẩm Kinh doanh")
+    render_page_title("🛍️ Sản phẩm Kinh doanh")
 
     # --- 1. PERMISSIONS & BRANCH SELECTION --- #
     user_info = auth_mgr.get_current_user_info()
@@ -71,7 +72,6 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
         else:
             with st.form("form_list_product"):
                 product_to_list = st.selectbox("Chọn sản phẩm từ danh mục", options=unlisted_products, format_func=lambda p: f"{p['name']} ({p['sku']})")
-                # Using text_input with placeholder for better UX, parsing with the new utility
                 price_str = st.text_input("Nhập giá bán cho chi nhánh này (VNĐ)", placeholder="Ví dụ: 6.500.000")
                 
                 if st.form_submit_button("Niêm yết"):
@@ -88,7 +88,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
     st.divider()
 
     # --- LIST OF BUSINESS PRODUCTS --- #
-    st.subheader(f"Sản phẩm kinh doanh tại: {allowed_branches_map[selected_branch_id]}")
+    render_section_header(f"Sản phẩm kinh doanh tại: {allowed_branches_map[selected_branch_id]}")
     if not listed_products:
         st.info("Chưa có sản phẩm nào được niêm yết tại chi nhánh này.")
     else:

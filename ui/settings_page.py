@@ -2,7 +2,7 @@
 import streamlit as st
 from managers.settings_manager import SettingsManager
 from managers.auth_manager import AuthManager
-from ui._utils import render_page_title
+from ui._utils import render_page_title, render_sub_header
 
 def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
     render_page_title("Quản trị Hệ thống")
@@ -18,9 +18,9 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
     # ===================================
     # EXPANDER 1: QUẢN LÝ CHI NHÁNH
     # ===================================
-    with st.expander("🏢 Quản lý Chi nhánh"):
+    with st.expander("🏢 Quản lý Chi nhánh", expanded=True):
         with st.form("add_branch_form", clear_on_submit=True):
-            st.subheader("Thêm chi nhánh mới")
+            render_sub_header("Thêm chi nhánh mới")
             c1, c2 = st.columns(2)
             branch_name = c1.text_input("Tên chi nhánh")
             branch_address = c2.text_input("Địa chỉ")
@@ -37,7 +37,7 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
 
         st.divider()
 
-        st.subheader("Các chi nhánh hiện có")
+        render_sub_header("Các chi nhánh hiện có")
         branches = branch_mgr.list_branches(active_only=False)
         if not branches:
             st.info("Chưa có chi nhánh nào được tạo.")
@@ -73,6 +73,7 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
     with st.expander("📄 Thông tin Kinh doanh"):
         business_info = current_settings.get('business_info', {})
         with st.form("business_info_form"):
+            render_sub_header("Thông tin đăng ký kinh doanh")
             name = st.text_input("Tên doanh nghiệp", value=business_info.get('name', ''))
             tax_code = st.text_input("Mã số thuế", value=business_info.get('tax_code', ''))
             phone = st.text_input("Số điện thoại", value=business_info.get('phone', ''))
@@ -94,6 +95,7 @@ def render_settings_page(settings_mgr: SettingsManager, auth_mgr: AuthManager):
     with st.expander("🔒 Cài đặt Bảo mật & Phiên đăng nhập"):
         persistence_days = current_settings.get('session_persistence_days', 0)
         with st.form("session_settings_form"):
+            render_sub_header("Cài đặt phiên đăng nhập")
             new_persistence_days = st.number_input(
                 "Thời gian ghi nhớ đăng nhập (số ngày)",
                 min_value=0, max_value=365,

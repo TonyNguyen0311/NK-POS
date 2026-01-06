@@ -18,7 +18,8 @@ from managers.settings_manager import SettingsManager
 from managers.promotion_manager import PromotionManager
 from managers.cost_manager import CostManager
 from managers.price_manager import PriceManager
-from managers.admin_manager import AdminManager # Added
+from managers.admin_manager import AdminManager
+from managers.transaction_manager import TransactionManager # Added
 
 # --- Import UI Pages ---
 from ui.login_page import render_login_page
@@ -35,7 +36,8 @@ from ui.stock_transfer_page import show_stock_transfer_page
 from ui.cost_allocation_page import render_cost_allocation_page
 from ui.pnl_report_page import render_pnl_report_page
 from ui.categories_page import render_categories_page
-from ui.admin_page import render_admin_page # Added
+from ui.admin_page import render_admin_page
+from ui.transactions_page import render_transactions_page # Added
 
 # --- UI Utils ---
 from ui._utils import load_css
@@ -48,19 +50,20 @@ MENU_PERMISSIONS = {
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Sản phẩm",
         "Danh mục", "Phân bổ Chi phí", "Quản lý Khuyến mãi",
-        "Quản lý Người dùng", "Quản trị Hệ thống", "Dọn dẹp Dữ liệu", # Added
+        "Quản lý Người dùng", "Quản trị Hệ thống", "Dọn dẹp Dữ liệu",
+        "Lịch sử Giao dịch", # Added
     ],
     "manager": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Khuyến mãi",
-        "Quản lý Người dùng",
+        "Quản lý Người dùng", "Lịch sử Giao dịch", # Added
     ],
     "supervisor": [
         "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
         "Quản lý Người dùng",
     ],
     "staff": [
-        "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho",
+        "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Lịch sử Giao dịch", # Added
     ]
 }
 MENU_STRUCTURE = {
@@ -68,7 +71,8 @@ MENU_STRUCTURE = {
         "Bán hàng (POS)",
         "Báo cáo P&L",
         "Báo cáo & Phân tích",
-        "Ghi nhận Chi phí"
+        "Ghi nhận Chi phí",
+        "Lịch sử Giao dịch", # Added
     ],
     "📦 Hàng hoá": [
         "Quản lý Sản phẩm",
@@ -84,7 +88,7 @@ MENU_STRUCTURE = {
     "🔑 Quản trị": [
         "Quản lý Người dùng",
         "Quản trị Hệ thống",
-        "Dọn dẹp Dữ liệu" # Added
+        "Dọn dẹp Dữ liệu"
     ]
 }
 
@@ -121,7 +125,8 @@ def init_managers():
     st.session_state.product_mgr = ProductManager(fb_client, price_mgr=st.session_state.price_mgr)
     st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
     st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
-    st.session_state.admin_mgr = AdminManager(fb_client) # Added
+    st.session_state.admin_mgr = AdminManager(fb_client)
+    st.session_state.txn_mgr = TransactionManager(fb_client) # Added
     st.session_state.pos_mgr = POSManager(
         firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
         customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
@@ -193,7 +198,8 @@ def main():
         "Quản lý Sản phẩm": lambda: render_product_catalog_page(st.session_state.product_mgr, st.session_state.auth_mgr),
         "Sản phẩm Kinh doanh": lambda: render_business_products_page(st.session_state.auth_mgr, st.session_state.branch_mgr, st.session_state.product_mgr, st.session_state.price_mgr),
         "Danh mục": lambda: render_categories_page(st.session_state.product_mgr, st.session_state.cost_mgr),
-        "Dọn dẹp Dữ liệu": lambda: render_admin_page(st.session_state.admin_mgr, st.session_state.auth_mgr), # Added
+        "Dọn dẹp Dữ liệu": lambda: render_admin_page(st.session_state.admin_mgr, st.session_state.auth_mgr),
+        "Lịch sử Giao dịch": lambda: render_transactions_page(st.session_state.txn_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr), # Added
     }
 
     renderer = page_renderers.get(page)

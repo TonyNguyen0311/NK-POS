@@ -1,9 +1,10 @@
 
 import streamlit as st
+from ui._utils import render_page_title, render_section_header, render_sub_header
 from utils.formatters import format_currency, format_number
 
 def render_cost_allocation_page(cost_mgr, branch_mgr, auth_mgr):
-    st.header("Phân bổ Chi phí")
+    render_page_title("Phân bổ Chi phí")
     st.info("Chức năng này cho phép phân bổ một khoản chi phí chung (như chi phí marketing, thuê văn phòng...) ra nhiều chi nhánh theo các quy tắc được định sẵn.")
 
     user_info = auth_mgr.get_current_user_info()
@@ -26,17 +27,17 @@ def render_cost_allocation_page(cost_mgr, branch_mgr, auth_mgr):
         render_apply_allocation(cost_mgr, hq_branch_id, user_id, unallocated_costs)
 
 def render_rules_management(cost_mgr, all_branches):
-    st.subheader("Quản lý Quy tắc Phân bổ")
+    render_section_header("Quản lý Quy tắc Phân bổ")
 
     if 'rule_splits' not in st.session_state:
         st.session_state.rule_splits = []
 
     with st.form("new_rule_form", clear_on_submit=True):
-        st.write("**Tạo quy tắc mới**")
+        render_sub_header("Tạo quy tắc mới")
         rule_name = st.text_input("Tên quy tắc (ví dụ: Phân bổ chi phí Marketing Q4)")
         description = st.text_area("Mô tả")
         
-        st.write("**Chi tiết phân bổ cho các chi nhánh:**")
+        render_sub_header("Chi tiết phân bổ cho các chi nhánh:")
         
         total_percentage = 0
         for i, split in enumerate(st.session_state.rule_splits):
@@ -83,7 +84,7 @@ def render_rules_management(cost_mgr, all_branches):
                     st.error(f"Lỗi: {e}")
 
     st.divider()
-    st.write("**Các quy tắc hiện có**")
+    render_sub_header("Các quy tắc hiện có")
     rules = cost_mgr.get_allocation_rules()
     if not rules:
         st.info("Chưa có quy tắc nào.")
@@ -101,7 +102,7 @@ def render_rules_management(cost_mgr, all_branches):
                 st.rerun()
 
 def render_apply_allocation(cost_mgr, hq_branch_id, user_id, unallocated_costs):
-    st.subheader("Áp dụng Quy tắc vào Chi phí")
+    render_section_header("Áp dụng Quy tắc vào Chi phí")
     
     rules = cost_mgr.get_allocation_rules()
     rule_options = {rule['id']: rule for rule in rules if sum(s['percentage'] for s in rule['splits']) == 100}
