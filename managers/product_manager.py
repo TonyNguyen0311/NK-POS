@@ -14,18 +14,20 @@ class ProductManager:
         self.db = firebase_client.db
         self.price_mgr = price_mgr
         self.products_collection = self.db.collection('products')
-        self.image_handler = self._initialize_image_handler()
+        self._image_handler = None  # Private attribute for lazy loading
         self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
-    
-    def _initialize_image_handler(self):
-        if "drive_oauth" in st.secrets and self.image_handler is None:
+
+    @property
+    def image_handler(self):
+        """Lazy loads the ImageHandler to avoid recursion and unnecessary initializations."""
+        if self._image_handler is None and "drive_oauth" in st.secrets:
             try:
                 creds_info = dict(st.secrets["drive_oauth"])
                 if creds_info.get('refresh_token'):
-                    return ImageHandler(credentials_info=creds_info)
+                    self._image_handler = ImageHandler(credentials_info=creds_info)
             except Exception as e:
-                logging.error(f"Failed to initialize ImageHandler: {e}")
-        return None
+                logging.error(f"Failed to initialize ImageHandler for products: {e}")
+        return self._image_handler
 
     # --- Generic Category/Brand/Unit Methods ---
     def get_all_category_items(self, collection_name: str):
@@ -184,4 +186,3 @@ class ProductManager:
         except Exception as e:
             st.error(f"Đã xảy ra lỗi khi tải sản phẩm cho chi nhánh: {e}")
             return []
-
