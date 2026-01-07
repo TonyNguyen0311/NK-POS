@@ -120,7 +120,6 @@ class CostManager:
                 entry_data = {**kwargs, 'id': entry_id, 'created_at': datetime.now().isoformat(), 'status': 'ACTIVE', 'source_entry_id': None}
                 self.entry_col.document(entry_id).set(entry_data)
             else:
-                # Create batch for amortized entries
                 batch = self.db.batch()
                 source_entry_id = base_id
                 source_ref = self.entry_col.document(source_entry_id)
@@ -152,7 +151,28 @@ class CostManager:
             return False, None
 
     def delete_cost_entry(self, entry_id: str):
-        # ... (implementation remains the same)
+        if not entry_id:
+            return False, "Cần có ID bút toán."
+        try:
+            entry_ref = self.entry_col.document(entry_id)
+            entry_doc = entry_ref.get()
+            if not entry_doc.exists:
+                return False, "Bút toán không tồn tại."
+            
+            attachment_id = entry_doc.to_dict().get('attachment_id')
+            if attachment_id and self.image_handler:
+                try:
+                    self.image_handler.delete_image_by_id(attachment_id)
+                except Exception as e:
+                    logging.warning(f"Could not delete receipt image {attachment_id} for cost entry {entry_id}. Error: {e}")
+
+            entry_ref.delete()
+            self.query_cost_entries.clear()
+            self.get_cost_entry.clear()
+            return True, f"Đã xóa thành công bút toán {entry_id}."
+        except Exception as e:
+            logging.error(f"Error deleting cost entry {entry_id}: {e}")
+            return False, f"Lỗi khi xóa bút toán: {e}"
 
     def get_cost_entry(self, entry_id):
         doc = self.entry_col.document(entry_id).get()
@@ -182,7 +202,6 @@ class CostManager:
             query = query.where('entry_date', '<=', filters['end_date'])
 
         try:
-            # Add ordering before streaming the results
             query = query.order_by('entry_date', direction=firestore.Query.DESCENDING)
             docs = query.stream()
             return [doc.to_dict() for doc in docs]
@@ -194,7 +213,6 @@ class CostManager:
             )
             return []
 
-# ... (Rest of the class and decorators remain the same)
 CostManager.get_all_category_items = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_all_category_items)
 CostManager.get_cost_entry = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_cost_entry)
 CostManager.query_cost_entries = st.cache_data(ttl=300, hash_funcs={CostManager: hash_cost_manager})(CostManager.query_cost_entries)
