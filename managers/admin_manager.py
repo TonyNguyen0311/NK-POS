@@ -1,6 +1,7 @@
 
 import streamlit as st
 import logging
+import traceback
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
@@ -67,32 +68,43 @@ class AdminManager:
         """
         Xóa một đơn hàng, các giao dịch tài chính liên quan và hoàn trả tồn kho.
         Hành động được thực hiện trong một transaction để đảm bảo tính toàn vẹn dữ liệu.
-        Tuân thủ quy tắc: ĐỌC trước, GHI sau.
+        Phiên bản này có logging chi tiết để gỡ lỗi.
         """
+        logging.info(f"--- BẮT ĐẦU XÓA ĐƠN HÀNG {order_id} ---")
         order_ref = self.db.collection('orders').document(order_id)
         txns_query = self.db.collection('transactions').where(filter=FieldFilter("order_id", "==", order_id))
 
         try:
+            transaction = self.db.transaction()
             @firestore.transactional
-            def _process_deletion(transaction):
+            def _process_deletion(transaction, order_ref, txns_query, current_user_id):
                 # --- GIAI ĐOẠN ĐỌC (READ PHASE) ---
+                logging.info(f"[{order_id}] (Trong transaction) Giai đoạn ĐỌC: Bắt đầu.")
+                
                 # 1. Đọc tài liệu đơn hàng
+                logging.info(f"[{order_id}] (Trong transaction) Đọc tài liệu đơn hàng từ ref: {order_ref.path}")
                 order_doc = transaction.get(order_ref)
+                logging.info(f"[{order_id}] (Trong transaction) Kiểu dữ liệu của order_doc: {type(order_doc)}")
+                
                 if not order_doc.exists:
-                    raise Exception(f"Không tìm thấy đơn hàng {order_id}. Có thể nó đã được xóa rồi.")
+                    logging.warning(f"[{order_id}] (Trong transaction) Đơn hàng không tồn tại. Dừng quá trình xóa.")
+                    raise Exception(f"Không tìm thấy đơn hàng {order_id}.")
 
+                logging.info(f"[{order_id}] (Trong transaction) Đã tìm thấy đơn hàng. Tiếp tục đọc giao dịch liên quan.")
                 # 2. Đọc các tài liệu giao dịch tài chính liên quan.
-                related_txn_docs = list(txns_query.stream(transaction=transaction))
+                # `transaction.get(query)` returns a generator of snapshots
+                related_txn_docs = list(transaction.get(txns_query))
+                logging.info(f"[{order_id}] (Trong transaction) Đã đọc {len(related_txn_docs)} giao dịch tài chính liên quan.")
 
                 # --- GIAI ĐOẠN GHI (WRITE PHASE) ---
-                # Từ đây trở đi, không còn thao tác ĐỌC nào nữa.
-
+                logging.info(f"[{order_id}] (Trong transaction) Giai đoạn GHI: Bắt đầu.")
                 order_data = order_doc.to_dict()
                 branch_id = order_data.get('branch_id')
                 items = order_data.get('items', [])
 
                 # 3. Hoàn trả tồn kho (thao tác GHI)
                 if branch_id and items:
+                    logging.info(f"[{order_id}] (Trong transaction) Chuẩn bị hoàn trả {len(items)} mặt hàng về chi nhánh {branch_id}.")
                     for item in items:
                         sku = item.get('sku')
                         quantity = item.get('quantity')
@@ -101,11 +113,11 @@ class AdminManager:
                                 transaction=transaction,
                                 sku=sku,
                                 branch_id=branch_id,
-                                delta=quantity,  # Cộng trả lại kho
+                                delta=quantity,
                                 order_id=f"REVERT-{order_id}",
                                 user_id=current_user_id
                             )
-
+                
                 # 4. Xóa các tài liệu giao dịch tài chính đã tìm thấy (thao tác GHI)
                 for doc in related_txn_docs:
                     transaction.delete(doc.reference)
@@ -113,9 +125,12 @@ class AdminManager:
                 # 5. Xóa chính đơn hàng đó (thao tác GHI)
                 transaction.delete(order_ref)
 
-            _process_deletion(self.db.transaction())
-            return True, f"Đã xóa thành công đơn hàng {order_id} và các dữ liệu liên quan."
+            _process_deletion(transaction, order_ref, txns_query, current_user_id)
+            
+            logging.info(f"--- HOÀN TẤT XÓA ĐƠN HÀNG {order_id} ---")
+            return True, f"Đã xóa thành công đơn hàng {order_id}."
 
         except Exception as e:
-            logging.error(f"Lỗi khi xóa đơn hàng {order_id}: {e}")
+            tb_str = traceback.format_exc()
+            logging.error(f"LỖI NGHIÊM TRỌNG KHI XÓA ĐƠN HÀNG {order_id}: {e}\nFULL TRACEBACK:\n{tb_str}")
             return False, f"Lỗi trong quá trình xóa: {e}"
