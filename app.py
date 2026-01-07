@@ -6,20 +6,24 @@ from datetime import datetime
 # --- Google/Firebase Imports ---
 from managers.firebase_client import FirebaseClient
 
-# --- Import Managers ---
+# --- Import Managers (in logical dependency order) ---
 from managers.auth_manager import AuthManager
 from managers.branch_manager import BranchManager
+from managers.settings_manager import SettingsManager
+from managers.price_manager import PriceManager
+from managers.cost_manager import CostManager
 from managers.product_manager import ProductManager
 from managers.inventory_manager import InventoryManager
 from managers.customer_manager import CustomerManager
-from managers.pos_manager import POSManager
-from managers.report_manager import ReportManager
-from managers.settings_manager import SettingsManager
 from managers.promotion_manager import PromotionManager
-from managers.cost_manager import CostManager
-from managers.price_manager import PriceManager
+# POSManager depends on Inventory, Customer, Promotion, Price, Cost
+from managers.pos_manager import POSManager
+# ReportManager depends on Cost
+from managers.report_manager import ReportManager
+# AdminManager depends on Inventory
 from managers.admin_manager import AdminManager
 from managers.transaction_manager import TransactionManager
+
 
 # --- Import UI Pages ---
 from ui.login_page import render_login_page
@@ -111,7 +115,6 @@ def connect_to_firebase():
     except Exception as e:
         st.error(f"Lỗi nghiêm trọng khi khởi tạo Firebase: {e}. Vui lòng liên hệ quản trị viên.")
         st.stop()
-
 
 def init_managers():
     if 'managers_initialized' in st.session_state:
