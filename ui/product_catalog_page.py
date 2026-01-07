@@ -4,112 +4,78 @@ from managers.product_manager import ProductManager
 from managers.auth_manager import AuthManager
 from ui._utils import render_page_title, render_section_header
 
-def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager):
-    render_page_title("🗂️ Quản lý Sản phẩm")
-
-    user_info = auth_mgr.get_current_user_info()
-    if not user_info:
-        st.warning("Vui lòng đăng nhập để xem.")
-        return
-
-    user_role = user_info.get('role', 'user')
-    is_admin = user_role == 'admin'
-    is_manager_or_admin = user_role in ['admin', 'manager']
-
-    if 'editing_product_id' not in st.session_state:
-        st.session_state.editing_product_id = None
-    if 'deleting_product_id' not in st.session_state:
-        st.session_state.deleting_product_id = None
-
-    # --- Helper function to display image safely ---
-    def display_image(image_id, width=150):
-        if image_id and prod_mgr.image_handler:
-            image_bytes = prod_mgr.image_handler.load_drive_image(image_id)
-            if image_bytes:
-                st.image(image_bytes, width=width)
-            else:
-                st.image("assets/no-image.png", width=width)
+# Helper function to display image safely
+def _display_image(image_id, prod_mgr, width=150):
+    if image_id and prod_mgr.image_handler:
+        image_bytes = prod_mgr.image_handler.load_drive_image(image_id)
+        if image_bytes:
+            st.image(image_bytes, width=width)
         else:
             st.image("assets/no-image.png", width=width)
+    else:
+        st.image("assets/no-image.png", width=width)
 
-    # --- PRODUCT MANAGEMENT UI ---
-    if is_manager_or_admin:
-        editing_product = prod_mgr.get_product_by_id(st.session_state.editing_product_id) if st.session_state.editing_product_id else None
-        form_title = "✏️ Chỉnh sửa Sản phẩm" if editing_product else "➕ Thêm Sản Phẩm Mới"
-        
-        with st.expander(form_title, expanded=st.session_state.editing_product_id is not None):
-            # FIX: Use correct keys "ProductCategories" and "ProductUnits"
-            categories = prod_mgr.get_all_category_items("ProductCategories")
-            units = prod_mgr.get_all_category_items("ProductUnits")
-            cat_opts = {c['id']: c['category_name'] for c in categories}
-            unit_opts = {u['id']: u['unit_name'] for u in units}
-
-            with st.form("product_form"):
-                st.text_input("SKU", value=(editing_product['sku'] if editing_product else "Tạo tự động"), disabled=True)
-                name = st.text_input("**Tên sản phẩm**", value=editing_product['name'] if editing_product else "")
-                
-                col1, col2 = st.columns(2)
-                # Handle case where no categories/units exist yet
-                default_cat_idx = 0
-                if cat_opts and editing_product and editing_product.get('category_id') in cat_opts:
-                    default_cat_idx = list(cat_opts.keys()).index(editing_product['category_id'])
-                cat_id = col1.selectbox("**Danh mục**", options=list(cat_opts.keys()), format_func=lambda x: cat_opts.get(x, "N/A"), index=default_cat_idx)
-                
-                default_unit_idx = 0
-                if unit_opts and editing_product and editing_product.get('unit_id') in unit_opts:
-                    default_unit_idx = list(unit_opts.keys()).index(editing_product['unit_id'])
-                unit_id = col2.selectbox("**Đơn vị**", options=list(unit_opts.keys()), format_func=lambda x: unit_opts.get(x, "N/A"), index=default_unit_idx)
-                
-                barcode = st.text_input("Barcode", value=editing_product['barcode'] if editing_product else "")
-                
-                st.write("Ảnh sản phẩm:")
-                delete_image = False
-                image_id_to_edit = editing_product.get('image_id') if editing_product else None
-                
-                display_image(image_id_to_edit, width=150)
-                
-                if image_id_to_edit:
-                    delete_image = st.checkbox("Xóa ảnh này và không thay thế", key=f"delete_img_{editing_product['id']}" if editing_product else "delete_img_new")
-
-                image_file = st.file_uploader("Tải ảnh mới (chỉ 1 ảnh, để trống nếu không đổi)", type=['png', 'jpg', 'jpeg'])
-
-                submit_col, cancel_col = st.columns([1,5])
-                if submit_col.form_submit_button("Lưu"):
-                    if not name or not cat_id:
-                        st.error("Tên sản phẩm và Danh mục là bắt buộc!")
-                    else:
-                        data = {"name": name, "category_id": cat_id, "unit_id": unit_id, "barcode": barcode}
-                        if image_file: data['image_file'] = image_file
-                        if delete_image: data['delete_image'] = True
-
-                        with st.spinner("Đang xử lý..."):
-                            if editing_product:
-                                success, msg = prod_mgr.update_product(editing_product['id'], data)
-                            else:
-                                success, msg = prod_mgr.create_product(data)
-
-                        if success:
-                            st.success(msg)
-                            st.session_state.editing_product_id = None
-                            st.rerun()
-                        else:
-                            st.error(msg)
-                
-                if editing_product and cancel_col.form_submit_button("Hủy", type="secondary"):
-                    st.session_state.editing_product_id = None
-                    st.rerun()
-    
-    st.divider()
-    render_section_header("Toàn bộ sản phẩm trong danh mục")
-    products = prod_mgr.get_all_products(active_only=False)
-
-    if not products:
-        st.info("Chưa có sản phẩm nào.")
+def _render_product_form(prod_mgr: ProductManager, is_manager_or_admin: bool):
+    """Renders the form for adding or editing a product."""
+    if not is_manager_or_admin:
         return
-    
-    # FIX: Use correct key "ProductCategories"
-    cat_names = {c['id']: c['category_name'] for c in prod_mgr.get_all_category_items("ProductCategories")}
 
+    editing_product = prod_mgr.get_product_by_id(st.session_state.editing_product_id) if st.session_state.editing_product_id else None
+    form_title = "✏️ Chỉnh sửa Sản phẩm" if editing_product else "➕ Thêm Sản Phẩm Mới"
+    
+    with st.expander(form_title, expanded=st.session_state.editing_product_id is not None):
+        categories = prod_mgr.get_all_category_items("ProductCategories")
+        units = prod_mgr.get_all_category_items("ProductUnits")
+        cat_opts = {c['id']: c['category_name'] for c in categories}
+        unit_opts = {u['id']: u['unit_name'] for u in units}
+
+        with st.form("product_form", clear_on_submit=True):
+            st.text_input("SKU", value=(editing_product['sku'] if editing_product else "Tạo tự động"), disabled=True)
+            name = st.text_input("**Tên sản phẩm**", value=editing_product['name'] if editing_product else "")
+            
+            col1, col2 = st.columns(2)
+            default_cat_idx = list(cat_opts.keys()).index(editing_product['category_id']) if editing_product and editing_product.get('category_id') in cat_opts else 0
+            cat_id = col1.selectbox("**Danh mục**", options=list(cat_opts.keys()), format_func=lambda x: cat_opts.get(x, "N/A"), index=default_cat_idx)
+            
+            default_unit_idx = list(unit_opts.keys()).index(editing_product['unit_id']) if editing_product and editing_product.get('unit_id') in unit_opts else 0
+            unit_id = col2.selectbox("**Đơn vị**", options=list(unit_opts.keys()), format_func=lambda x: unit_opts.get(x, "N/A"), index=default_unit_idx)
+            
+            barcode = st.text_input("Barcode", value=editing_product['barcode'] if editing_product else "")
+            
+            st.write("Ảnh sản phẩm:")
+            image_id_to_edit = editing_product.get('image_id') if editing_product else None
+            _display_image(image_id_to_edit, prod_mgr, width=150)
+            
+            delete_image = st.checkbox("Xóa ảnh này", key="delete_image_checkbox") if image_id_to_edit else False
+            image_file = st.file_uploader("Tải ảnh mới (để trống nếu không đổi)", type=['png', 'jpg', 'jpeg'])
+
+            submit_col, cancel_col = st.columns([1, 5])
+            if submit_col.form_submit_button("Lưu"):
+                if not name or not cat_id:
+                    st.error("Tên sản phẩm và Danh mục là bắt buộc!")
+                else:
+                    data = {"name": name, "category_id": cat_id, "unit_id": unit_id, "barcode": barcode, "delete_image": delete_image}
+                    if image_file: data['image_file'] = image_file
+                    
+                    with st.spinner("Đang xử lý..."):
+                        if editing_product:
+                            success, msg = prod_mgr.update_product(editing_product['id'], data)
+                        else:
+                            success, msg = prod_mgr.create_product(data)
+                    
+                    if success:
+                        st.success(msg)
+                        st.session_state.editing_product_id = None
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            if editing_product and cancel_col.form_submit_button("Hủy", type="secondary"):
+                st.session_state.editing_product_id = None
+                st.rerun()
+
+def _render_product_list(prod_mgr: ProductManager, products: list, cat_names: dict, is_admin: bool, is_manager_or_admin: bool):
+    """Renders the table of products with their details and actions."""
     h_cols = st.columns([1, 1, 4, 2, 1, 2])
     h_cols[0].markdown("**SKU**")
     h_cols[1].markdown("**Ảnh**")
@@ -122,13 +88,12 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
     for p in products:
         p_cols = st.columns([1, 1, 4, 2, 1, 2])
         p_cols[0].write(p['sku'])
-        
         with p_cols[1]:
-            display_image(p.get('image_id'), width=60)
-
+            _display_image(p.get('image_id'), prod_mgr, width=60)
         p_cols[2].write(p['name'])
         p_cols[3].write(cat_names.get(p.get('category_id'), "N/A"))
 
+        # Active status toggle
         if is_admin:
             is_active = p.get('active', True)
             new_status = p_cols[4].toggle("", value=is_active, key=f"active_{p['id']}", label_visibility="collapsed")
@@ -138,6 +103,7 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         else:
             p_cols[4].write("✅" if p.get('active', True) else "🔒")
         
+        # Action buttons
         action_col = p_cols[5].columns(2)
         if is_manager_or_admin:
             if action_col[0].button("✏️", key=f"edit_{p['id']}", use_container_width=True):
@@ -148,15 +114,54 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                 st.session_state.deleting_product_id = p['id']
                 st.rerun()
 
+        # Deletion confirmation
         if is_admin and st.session_state.get('deleting_product_id') == p['id']:
             st.warning(f"Xóa vĩnh viễn **{p['name']} ({p['sku']})**? Hành động này không thể hoàn tác.")
             c1, c2 = st.columns(2)
             if c1.button("XÁC NHẬN XÓA", key=f"confirm_delete_{p['id']}", type="primary"):
-                with st.spinner("Đang xóa sản phẩm và ảnh liên quan..."):
+                with st.spinner("Đang xóa sản phẩm..."):
                     prod_mgr.hard_delete_product(p['id'])
                 st.session_state.deleting_product_id = None
                 st.rerun()
             if c2.button("Hủy bỏ", key=f"cancel_delete_{p['id']}"):
                 st.session_state.deleting_product_id = None
                 st.rerun()
+        
         st.markdown("<hr style='margin:0.25rem 0'>", unsafe_allow_html=True)
+
+def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager):
+    """Main function to render the entire product catalog page."""
+    render_page_title("🗂️ Quản lý Sản phẩm")
+
+    user_info = auth_mgr.get_current_user_info()
+    if not user_info:
+        st.warning("Vui lòng đăng nhập để xem.")
+        return
+
+    # Initialize session state keys
+    if 'editing_product_id' not in st.session_state:
+        st.session_state.editing_product_id = None
+    if 'deleting_product_id' not in st.session_state:
+        st.session_state.deleting_product_id = None
+
+    # Determine user roles and permissions
+    user_role = user_info.get('role', 'user')
+    is_admin = user_role == 'admin'
+    is_manager_or_admin = user_role in ['admin', 'manager']
+
+    # Render the Add/Edit form
+    _render_product_form(prod_mgr, is_manager_or_admin)
+    
+    st.divider()
+    render_section_header("Toàn bộ sản phẩm trong danh mục")
+    
+    # Fetch data for the list
+    products = prod_mgr.get_all_products(active_only=False)
+    if not products:
+        st.info("Chưa có sản phẩm nào.")
+        return
+        
+    cat_names = {c['id']: c['category_name'] for c in prod_mgr.get_all_category_items("ProductCategories")}
+
+    # Render the product list
+    _render_product_list(prod_mgr, products, cat_names, is_admin, is_manager_or_admin)
