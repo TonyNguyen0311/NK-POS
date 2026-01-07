@@ -1,39 +1,17 @@
 
 import streamlit as st
 import base64
-import time
 from datetime import datetime
 from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector, inject_custom_css
 from utils.formatters import format_currency, format_number
 import os
 from urllib.parse import quote
 
-# --- Performance Diagnostics ---
-def init_perf_diagnostics():
-    if 'perf_log' not in st.session_state:
-        st.session_state.perf_log = []
-    if 'run_count' not in st.session_state:
-        st.session_state.run_count = 0
-    st.session_state.perf_log.clear()
-    st.session_state.run_count += 1
-
-def log_timing(name, start_time):
-    duration = (time.time() - start_time) * 1000  # Convert to milliseconds
-    st.session_state.perf_log.append({'Function/Task': name, 'Duration (ms)': duration, 'Run #': st.session_state.run_count})
-
-def render_perf_diagnostics():
-    with st.expander("📈 Performance Diagnostics (Baseline)", expanded=True):
-        if not st.session_state.perf_log:
-            st.write("No performance data logged for this run.")
-        else:
-            total_time = sum(item['Duration (ms)'] for item in st.session_state.perf_log if "TOTAL:" in item['Function/Task'])
-            st.metric("Total instrumented time for this run", f"{total_time:.2f} ms")
-            st.dataframe(st.session_state.perf_log, use_container_width=True)
-            st.write(f"Total Reruns in this session: {st.session_state.run_count}")
-
 # --- State Management ---
 def initialize_pos_state(branch_id):
+    """Initializes or resets the POS state when the branch changes."""
     branch_key = f"pos_{branch_id}"
+    # Check if the branch has changed or if the state is not initialized
     if st.session_state.get('current_pos_branch_key') != branch_key:
         st.session_state.pos_cart = {}
         st.session_state.pos_customer = "-"
@@ -41,60 +19,56 @@ def initialize_pos_state(branch_id):
         st.session_state.pos_category = "ALL"
         st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
         st.session_state.current_pos_branch_key = branch_key
-        # Reset diagnostics on branch change
-        st.session_state.run_count = 0
+        # Clear query params to prevent adding items from a different branch
+        st.query_params.clear()
 
-# --- UI Rendering & Asset Functions (Instrumented for Baseline) ---
+# --- UI Rendering & Asset Functions ---
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_placeholder_image_b64():
+    """Loads the placeholder image and returns its Base64 encoding."""
     try:
         with open(os.path.join("assets", "no-image.png"), "rb") as f:
             return base64.b64encode(f.read()).decode()
     except Exception:
         return None
 
-@st.cache_data(show_spinner=False, ttl=600)
+@st.cache_data(show_spinner=False)
 def get_product_image_b64(_product_mgr, image_id):
+    """Loads a product image from Google Drive and returns its Base64 encoding."""
     if not image_id or not _product_mgr.image_handler: return None
-    t_img = time.time()
     try:
         img_bytes = _product_mgr.image_handler.load_drive_image(image_id)
         if img_bytes:
             mime_type = "image/png" if img_bytes.startswith(b'\x89PNG') else "image/jpeg"
-            b64_string = f"data:{mime_type};base64,{base64.b64encode(img_bytes).decode()}"
-            log_timing(f"get_product_image_b64 (id: {image_id[:10]}...)", t_img)
-            return b64_string
+            return f"data:{mime_type};base64,{base64.b64encode(img_bytes).decode()}"
     except Exception as e:
         st.error(f"Lỗi tải ảnh: {e}")
     return None
 
-def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    t_gallery = time.time()
+def render_product_gallery(product_mgr, inventory_mgr, branch_id):
     render_section_header("Thư viện Sản phẩm")
     
     # --- Filter Bar ---
     filter_col1, filter_col2 = st.columns([0.6, 0.4])
     with filter_col1:
         search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input", label_visibility="collapsed", placeholder="Tìm sản phẩm...")
-        st.session_state.pos_search = search_query
-    
+        if st.session_state.get("pos_search") != search_query:
+            st.session_state.pos_search = search_query
+            st.rerun()
+
+    # Use cached function to get categories
+    all_categories = product_mgr.get_all_category_items("ProductCategories")
+    cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
+    cat_options["ALL"] = "Tất cả danh mục"
     with filter_col2:
-        all_categories = product_mgr.get_all_category_items("ProductCategories")
-        cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
-        cat_options["ALL"] = "Tất cả danh mục"
         selected_cat = st.selectbox("Lọc theo danh mục", options=list(cat_options.keys()), format_func=lambda x: cat_options.get(x, "N/A"), key='pos_category', label_visibility="collapsed")
     
     st.divider()
 
-    # --- Product Data Fetching ---
-    t_fetch_prod = time.time()
+    # --- Product Data Fetching (Uses cached data) ---
     branch_products = product_mgr.get_listed_products_for_branch(branch_id)
-    log_timing('get_listed_products_for_branch', t_fetch_prod)
-    
-    t_fetch_inv = time.time()
     branch_inventory = inventory_mgr.get_inventory_by_branch(branch_id)
-    log_timing('get_inventory_by_branch', t_fetch_inv)
 
     # --- Filtering Logic ---
     filtered_products = [p for p in branch_products if (search_query.lower() in p['name'].lower() or search_query.lower() in p.get('sku', '').lower())]
@@ -105,41 +79,25 @@ def render_product_gallery(pos_mgr, product_mgr, inventory_mgr, branch_id):
     if not filtered_products:
         st.info("Không tìm thấy sản phẩm nào phù hợp với lựa chọn của bạn.")
     else:
-        t_render = time.time()
         placeholder_b64 = f"data:image/png;base64,{get_placeholder_image_b64()}"
-        product_cards_html = []
-
-        for p in filtered_products:
+        cols = st.columns(4) # Define number of columns
+        for i, p in enumerate(filtered_products):
             sku = p.get('sku')
             if not sku: continue
 
             stock_quantity = branch_inventory.get(sku, {}).get('stock_quantity', 0)
             if stock_quantity <= 0: continue
 
-            image_src = get_product_image_b64(product_mgr, p.get('image_id')) or placeholder_b64
-            selling_price = p.get('selling_price', 0)
-            safe_sku = quote(sku)
-
-            card_html = f'''
-            <div class="product-card">
-                <div class="product-image-container">
-                    <img src="{image_src}" class="product-image" alt="{p["name"]}">
-                </div>
-                <div class="product-details">
-                    <div class="product-title">{p['name']}</div>
-                    <div class="product-price">{format_currency(selling_price, 'đ')}</div>
-                    <div class="product-stock">Tồn kho: {format_number(stock_quantity)}</div>
-                    <a href="?add_to_cart={safe_sku}" target="_self" class="add-to-cart-btn">➕ Thêm vào giỏ</a>
-                </div>
-            </div>
-            '''
-            product_cards_html.append(card_html)
-
-        gallery_html = "".join(product_cards_html)
-        st.markdown(f"<div class='product-gallery'>{gallery_html}</div>", unsafe_allow_html=True)
-        log_timing('Generate & Render Gallery HTML', t_render)
-    
-    log_timing('TOTAL: render_product_gallery', t_gallery)
+            with cols[i % 4]:
+                with st.container(border=True):
+                    image_src = get_product_image_b64(product_mgr, p.get('image_id')) or placeholder_b64
+                    st.image(image_src)
+                    st.markdown(f"<div class='product-title'>{p['name']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='product-price'>{format_currency(p.get('selling_price', 0), 'đ')}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='product-stock'>Tồn kho: {format_number(stock_quantity)}</div>", unsafe_allow_html=True)
+                    if st.button("➕ Thêm vào giỏ", key=f"add_{sku}", use_container_width=True):
+                        st.query_params['add_to_cart'] = sku
+                        st.rerun()
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
     render_section_header(f"Đơn hàng ({cart_state['total_items']} món)")
@@ -219,44 +177,52 @@ def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
     if st.button("✅ Xác nhận & In hóa đơn", use_container_width=True, type="primary"):
         current_user = st.session_state.user
         with st.spinner("Đang xử lý đơn hàng..."):
+            # Clear inventory caches before creating order to have the latest stock info
+            st.session_state.inventory_mgr._clear_caches()
             success, message = pos_mgr.create_order(cart_state=cart_state, customer_id=st.session_state.pos_customer, branch_id=branch_id, seller_id=current_user['uid'])
         if success:
             st.success(f"Tạo đơn hàng thành công! ID: {message}")
             pos_mgr.clear_cart()
+            # Clear caches again after successful order
+            st.session_state.inventory_mgr._clear_caches()
             st.session_state.show_confirm_dialog = False
             st.rerun()
         else:
             st.error(f"Lỗi: {message}")
+            # Clear inventory cache even on failure to reflect any stock checks
+            st.session_state.inventory_mgr._clear_caches()
 
     if st.button("Hủy", use_container_width=True):
         st.session_state.show_confirm_dialog = False
         st.rerun()
 
 def handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, branch_id):
+    """Handles the action of adding a product to the cart via query parameters."""
     if 'add_to_cart' in st.query_params:
-        t_action = time.time()
-        sku_to_add = st.query_params['add_to_cart']
+        sku_to_add = st.query_params.pop('add_to_cart')
         
-        product = product_mgr.get_product_by_id(sku_to_add)
-        stock = inventory_mgr.get_inventory_by_branch(branch_id).get(sku_to_add, {}).get('stock_quantity', 0)
-
-        if product and stock > 0:
-            pos_mgr.add_item_to_cart(branch_id, product, stock)
-            st.toast(f"Đã thêm '{product['name']}' vào giỏ!", icon="🛒")
+        # --- BUG FIX: Use the same data source as the gallery ---
+        # Instead of get_product_by_id, find the product in the listed products for the branch
+        # which already contains the correct selling_price.
+        branch_products = product_mgr.get_listed_products_for_branch(branch_id)
+        product_to_add = next((p for p in branch_products if p.get('sku') == sku_to_add), None)
+        
+        if product_to_add:
+            stock = inventory_mgr.get_inventory_by_branch(branch_id).get(sku_to_add, {}).get('stock_quantity', 0)
+            if stock > 0:
+                pos_mgr.add_item_to_cart(branch_id, product_to_add, stock)
+                st.toast(f"Đã thêm '{product_to_add['name']}' vào giỏ!", icon="🛒")
+            else:
+                st.toast("Sản phẩm đã hết hàng.", icon="⚠️")
         else:
-            st.toast("Sản phẩm không hợp lệ hoặc đã hết hàng.", icon="⚠️")
+            st.error("Sản phẩm không tìm thấy hoặc không có giá bán cho chi nhánh này.")
+            st.toast("Sản phẩm không hợp lệ.", icon="❌")
 
-        params = st.query_params.to_dict()
-        params.pop('add_to_cart', None)
-        st.query_params.from_dict(params)
-        log_timing('TOTAL: handle_add_to_cart_action (before rerun)', t_action)
+        # Rerun to show the updated cart and clear the query param from URL
         st.rerun()
 
 # --- Main Page Rendering ---
 def render_pos_page(pos_mgr):
-    init_perf_diagnostics()
-    t_page_load = time.time()
-    
     render_page_title("Bán hàng tại quầy (POS)")
     inject_custom_css()
 
@@ -286,13 +252,10 @@ def render_pos_page(pos_mgr):
     # Page Layout
     main_col, order_col = st.columns([0.6, 0.4])
     with main_col:
-        render_product_gallery(pos_mgr, product_mgr, inventory_mgr, selected_branch_id)
+        render_product_gallery(product_mgr, inventory_mgr, selected_branch_id)
     with order_col:
         render_cart_view(cart_state, pos_mgr, product_mgr)
         render_checkout_panel(cart_state, customer_mgr, pos_mgr, selected_branch_id)
 
     if st.session_state.get('show_confirm_dialog', False):
         confirm_checkout_dialog(cart_state, pos_mgr, selected_branch_id)
-
-    log_timing('TOTAL: Full Page Rerun', t_page_load)
-    render_perf_diagnostics()
