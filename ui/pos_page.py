@@ -5,13 +5,12 @@ from datetime import datetime
 from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector, inject_custom_css
 from utils.formatters import format_currency, format_number
 import os
-from urllib.parse import quote
 
-# --- State Management ---
+# --- State Management & Callbacks ---
+
 def initialize_pos_state(branch_id):
     """Initializes or resets the POS state when the branch changes."""
     branch_key = f"pos_{branch_id}"
-    # Check if the branch has changed or if the state is not initialized
     if st.session_state.get('current_pos_branch_key') != branch_key:
         st.session_state.pos_cart = {}
         st.session_state.pos_customer = "-"
@@ -19,8 +18,11 @@ def initialize_pos_state(branch_id):
         st.session_state.pos_category = "ALL"
         st.session_state.pos_manual_discount = {"type": "PERCENT", "value": 0}
         st.session_state.current_pos_branch_key = branch_key
-        # Clear query params to prevent adding items from a different branch
-        st.query_params.clear()
+
+def add_to_cart_callback(pos_mgr, branch_id, product_data, stock_quantity):
+    """Callback function to add an item to the cart. No rerun needed."""
+    pos_mgr.add_item_to_cart(branch_id, product_data, stock_quantity)
+    st.toast(f"Đã thêm '{product_data['name']}' vào giỏ!", icon="🛒")
 
 # --- UI Rendering & Asset Functions ---
 
@@ -46,18 +48,14 @@ def get_product_image_b64(_product_mgr, image_id):
         st.error(f"Lỗi tải ảnh: {e}")
     return None
 
-def render_product_gallery(product_mgr, inventory_mgr, branch_id):
+def render_product_gallery(product_mgr, inventory_mgr, pos_mgr, branch_id):
     render_section_header("Thư viện Sản phẩm")
     
     # --- Filter Bar ---
     filter_col1, filter_col2 = st.columns([0.6, 0.4])
     with filter_col1:
-        search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search_input", label_visibility="collapsed", placeholder="Tìm sản phẩm...")
-        if st.session_state.get("pos_search") != search_query:
-            st.session_state.pos_search = search_query
-            st.rerun()
+        search_query = st.text_input("🔍 Tìm theo tên hoặc SKU", st.session_state.get("pos_search", ""), key="pos_search", label_visibility="collapsed", placeholder="Tìm sản phẩm...")
 
-    # Use cached function to get categories
     all_categories = product_mgr.get_all_category_items("ProductCategories")
     cat_options = {cat['id']: cat['category_name'] for cat in all_categories}
     cat_options["ALL"] = "Tất cả danh mục"
@@ -66,7 +64,7 @@ def render_product_gallery(product_mgr, inventory_mgr, branch_id):
     
     st.divider()
 
-    # --- Product Data Fetching (Uses cached data) ---
+    # --- Product Data Fetching ---
     branch_products = product_mgr.get_listed_products_for_branch(branch_id)
     branch_inventory = inventory_mgr.get_inventory_by_branch(branch_id)
 
@@ -80,7 +78,7 @@ def render_product_gallery(product_mgr, inventory_mgr, branch_id):
         st.info("Không tìm thấy sản phẩm nào phù hợp với lựa chọn của bạn.")
     else:
         placeholder_b64 = f"data:image/png;base64,{get_placeholder_image_b64()}"
-        cols = st.columns(4) # Define number of columns
+        cols = st.columns(4)
         for i, p in enumerate(filtered_products):
             sku = p.get('sku')
             if not sku: continue
@@ -95,9 +93,14 @@ def render_product_gallery(product_mgr, inventory_mgr, branch_id):
                     st.markdown(f"<div class='product-title'>{p['name']}</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='product-price'>{format_currency(p.get('selling_price', 0), 'đ')}</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='product-stock'>Tồn kho: {format_number(stock_quantity)}</div>", unsafe_allow_html=True)
-                    if st.button("➕ Thêm", key=f"add_{sku}", use_container_width=True):
-                        st.query_params['add_to_cart'] = sku
-                        st.rerun()
+                    
+                    st.button(
+                        "➕ Thêm", 
+                        key=f"add_{sku}", 
+                        use_container_width=True, 
+                        on_click=add_to_cart_callback, 
+                        args=(pos_mgr, branch_id, p, stock_quantity)
+                    )
 
 def render_cart_view(cart_state, pos_mgr, product_mgr):
     render_section_header(f"Đơn hàng ({cart_state['total_items']} món)")
@@ -123,16 +126,12 @@ def render_cart_view(cart_state, pos_mgr, product_mgr):
                             st.markdown(f"<small style='color: green; text-decoration: line-through;'>*Cũ: {format_currency(item['original_line_total'], 'đ')}*</small>", unsafe_allow_html=True)
                     with qty_col:
                         q_c1, q_c2, q_c3 = st.columns([1, 1, 1])
-                        if q_c1.button("−", key=f"dec_{sku}", use_container_width=True):
-                            pos_mgr.update_item_quantity(sku, item['quantity'] - 1)
-                            st.rerun()
+                        if q_c1.button("−", key=f"dec_{sku}", use_container_width=True, on_click=pos_mgr.update_item_quantity, args=(sku, item['quantity'] - 1)):
+                            pass # Callback handles it
                         q_c2.write(f"<div style='text-align: center; padding-top: 5px'>{format_number(item['quantity'])}</div>", unsafe_allow_html=True)
-                        if q_c3.button("＋", key=f"inc_{sku}", use_container_width=True):
-                            if item['quantity'] < item['stock']:
-                                pos_mgr.update_item_quantity(sku, item['quantity'] + 1)
-                                st.rerun()
-                            else:
-                                st.toast("Vượt quá tồn kho!", icon="⚠️")
+                        if q_c3.button("＋", key=f"inc_{sku}", use_container_width=True, on_click=pos_mgr.update_item_quantity, args=(sku, item['quantity'] + 1)):
+                             if item['quantity'] >= item['stock']:
+                                 st.toast("Vượt quá tồn kho!", icon="⚠️")
             st.divider()
 
 def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
@@ -156,12 +155,11 @@ def render_checkout_panel(cart_state, customer_mgr, pos_mgr, branch_id):
         c1, c2 = st.columns(2)
         if c1.button("💳 THANH TOÁN", use_container_width=True, type="primary", disabled=(not cart_state['items'])):
             st.session_state.show_confirm_dialog = True
-            st.rerun()
+            st.rerun() # Rerun to open dialog
 
-        if c2.button("🗑️ Xóa giỏ hàng", use_container_width=True):
-            pos_mgr.clear_cart()
+        if c2.button("🗑️ Xóa giỏ hàng", use_container_width=True, on_click=pos_mgr.clear_cart):
             st.toast("Đã xóa giỏ hàng", icon="🗑️")
-            st.rerun()
+            # No rerun needed here, clear_cart changes state and Streamlit reruns automatically
 
 @st.dialog("Xác nhận thanh toán")
 def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
@@ -177,49 +175,22 @@ def confirm_checkout_dialog(cart_state, pos_mgr, branch_id):
     if st.button("✅ Xác nhận & In hóa đơn", use_container_width=True, type="primary"):
         current_user = st.session_state.user
         with st.spinner("Đang xử lý đơn hàng..."):
-            # Clear inventory caches before creating order to have the latest stock info
             st.session_state.inventory_mgr._clear_caches()
             success, message = pos_mgr.create_order(cart_state=cart_state, customer_id=st.session_state.pos_customer, branch_id=branch_id, seller_id=current_user['uid'])
         if success:
             st.success(f"Tạo đơn hàng thành công! ID: {message}")
-            pos_mgr.clear_cart()
-            # Clear caches again after successful order
+            # We don't need to call clear_cart here, it will be reset on rerun by initialize_pos_state logic if needed
             st.session_state.inventory_mgr._clear_caches()
             st.session_state.show_confirm_dialog = False
-            st.rerun()
+            st.rerun() # Rerun to close dialog and refresh UI
         else:
             st.error(f"Lỗi: {message}")
-            # Clear inventory cache even on failure to reflect any stock checks
             st.session_state.inventory_mgr._clear_caches()
 
     if st.button("Hủy", use_container_width=True):
         st.session_state.show_confirm_dialog = False
-        st.rerun()
+        st.rerun() # Rerun to close dialog
 
-def handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, branch_id):
-    """Handles the action of adding a product to the cart via query parameters."""
-    if 'add_to_cart' in st.query_params:
-        sku_to_add = st.query_params.pop('add_to_cart')
-        
-        # --- BUG FIX: Use the same data source as the gallery ---
-        # Instead of get_product_by_id, find the product in the listed products for the branch
-        # which already contains the correct selling_price.
-        branch_products = product_mgr.get_listed_products_for_branch(branch_id)
-        product_to_add = next((p for p in branch_products if p.get('sku') == sku_to_add), None)
-        
-        if product_to_add:
-            stock = inventory_mgr.get_inventory_by_branch(branch_id).get(sku_to_add, {}).get('stock_quantity', 0)
-            if stock > 0:
-                pos_mgr.add_item_to_cart(branch_id, product_to_add, stock)
-                st.toast(f"Đã thêm '{product_to_add['name']}' vào giỏ!", icon="🛒")
-            else:
-                st.toast("Sản phẩm đã hết hàng.", icon="⚠️")
-        else:
-            st.error("Sản phẩm không tìm thấy hoặc không có giá bán cho chi nhánh này.")
-            st.toast("Sản phẩm không hợp lệ.", icon="❌")
-
-        # Rerun to show the updated cart and clear the query param from URL
-        st.rerun()
 
 # --- Main Page Rendering ---
 def render_pos_page(pos_mgr):
@@ -245,14 +216,13 @@ def render_pos_page(pos_mgr):
 
     initialize_pos_state(selected_branch_id)
     
-    # Actions & Calculations
-    handle_add_to_cart_action(pos_mgr, product_mgr, inventory_mgr, selected_branch_id)
+    # Calculations (now much simpler)
     cart_state = pos_mgr.calculate_cart_state(st.session_state.get('pos_cart', {}), st.session_state.get('pos_customer', "-"), st.session_state.get('pos_manual_discount', {}))
 
     # Page Layout
     main_col, order_col = st.columns([0.6, 0.4])
     with main_col:
-        render_product_gallery(product_mgr, inventory_mgr, selected_branch_id)
+        render_product_gallery(product_mgr, inventory_mgr, pos_mgr, selected_branch_id)
     with order_col:
         render_cart_view(cart_state, pos_mgr, product_mgr)
         render_checkout_panel(cart_state, customer_mgr, pos_mgr, selected_branch_id)
