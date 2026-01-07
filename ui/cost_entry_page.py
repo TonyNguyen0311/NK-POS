@@ -32,8 +32,8 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     default_branch_id = user.get('default_branch_id')
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches()}
     
-    # FIX: Use prod_mgr to get cost categories
-    cost_groups_raw = prod_mgr.get_all_category_items("CostCategories")
+    # FINAL FIX: Use the correct key "CostGroups"
+    cost_groups_raw = prod_mgr.get_all_category_items("CostGroups")
     group_map = {g['id']: g['category_name'] for g in cost_groups_raw}
 
     # Handle dialog trigger
