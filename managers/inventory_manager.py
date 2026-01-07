@@ -95,14 +95,31 @@ class InventoryManager:
         self.inventory_col = self.db.collection('inventory')
         self.transactions_col = self.db.collection('inventory_transactions')
 
-    def update_inventory(self, transaction, sku: str, branch_id: str, delta: int, order_id: str, user_id: str):
+    def update_inventory(self, transaction, sku: str, branch_id: str, delta: int, order_id: str, user_id: str) -> float:
         """
-        Updates inventory for a given SKU within an existing Firestore transaction.
+        Updates inventory for a given SKU within an existing Firestore transaction
+        and returns the average cost of the item at the time of the transaction.
+
         IMPORTANT: This function does NOT clear caches. Cache clearing must be handled
-        by the calling function (e.g., POSManager) after the transaction is successfully committed.
+        by the calling function (e.g., POSManager) after the transaction is committed.
+
+        Args:
+            transaction: The Firestore transaction object.
+            sku (str): The stock keeping unit of the product.
+            branch_id (str): The ID of the branch.
+            delta (int): The change in quantity (negative for sales).
+            order_id (str): The ID of the order causing this change.
+            user_id (str): The ID of the user performing the action.
+
+        Returns:
+            float: The average cost of the SKU at the moment of the transaction.
         """
         if delta == 0:
-            return
+            inv_doc_ref = self.inventory_col.document(f"{sku.upper()}_{branch_id}")
+            inv_snapshot = inv_doc_ref.get(transaction=transaction)
+            if inv_snapshot.exists:
+                return inv_snapshot.to_dict().get('average_cost', 0)
+            return 0
 
         inv_doc_ref = self.inventory_col.document(f"{sku.upper()}_{branch_id}")
         inv_snapshot = inv_doc_ref.get(transaction=transaction)
@@ -118,16 +135,19 @@ class InventoryManager:
         if new_quantity < 0:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku} tại chi nhánh {branch_id}. Giao dịch thất bại.")
 
-        transaction.update(inv_doc_ref, {
+        transaction_timestamp = datetime.now().isoformat()
+
+        # Use set with merge=True to be safe, in case the inventory doc doesn't exist yet
+        transaction.set(inv_doc_ref, {
             'stock_quantity': new_quantity,
-            'last_updated': datetime.now().isoformat()
-        })
+            'last_updated': transaction_timestamp
+        }, merge=True)
 
         trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
         trans_ref = self.transactions_col.document(trans_id)
         transaction.set(trans_ref, {
             'id': trans_id,
-            'voucher_id': order_id,  # Link to the sales order
+            'voucher_id': order_id,
             'sku': sku,
             'branch_id': branch_id,
             'user_id': user_id,
@@ -135,11 +155,13 @@ class InventoryManager:
             'delta': delta,
             'quantity_before': current_quantity,
             'quantity_after': new_quantity,
-            'cost_at_transaction': average_cost, # Record the COGS for this item
-            'purchase_price': None,  # Not applicable for sales transaction
+            'cost_at_transaction': average_cost,
+            'purchase_price': None,
             'notes': f'Bán hàng theo đơn hàng {order_id}',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': transaction_timestamp,
         })
+        
+        return average_cost
 
     def _clear_caches(self):
         """Clears specific caches related to inventory and vouchers."""
@@ -194,6 +216,7 @@ class InventoryManager:
         }
 
         transaction = self.db.transaction()
+        # TODO: This should read the inventory inside the transaction, not from cache.
         _create_voucher_and_transactions_transactional(transaction, self.db, voucher_ref, voucher_data, items_with_delta)
         self._clear_caches()
         return voucher_id
