@@ -15,44 +15,44 @@ class ReportManager:
     def __init__(self, firebase_client, cost_mgr: CostManager):
         self.db = firebase_client.db
         self.cost_mgr = cost_mgr
-        self.orders_collection = self.db.collection('orders')
+        self.transactions_collection = self.db.collection('transactions')
         self.products_collection = self.db.collection('products')
         self.inventory_collection = self.db.collection('inventory')
-        self.categories_collection = self.db.collection('categories')
+        self.categories_collection = self.db.collection('ProductCategories')
 
     def get_profit_analysis_report(self, start_date: datetime, end_date: datetime, branch_ids: list):
         try:
             products_snapshot = self.products_collection.stream()
             product_details = {p.id: p.to_dict() for p in products_snapshot}
             categories_snapshot = self.categories_collection.stream()
-            category_details = {c.id: c.to_dict().get('name', 'N/A') for c in categories_snapshot}
+            category_details = {c.id: c.to_dict().get('category_name', 'N/A') for c in categories_snapshot}
 
-            order_query = self.orders_collection.where('status', '==', 'COMPLETED') \
-                                               .where('created_at', '>=', start_date.isoformat()) \
-                                               .where('created_at', '<=', end_date.isoformat())
+            query = self.transactions_collection.where('type', '==', 'SALE') \
+                                               .where('created_at', '>=', start_date) \
+                                               .where('created_at', '<=', end_date)
             if branch_ids:
-                order_query = order_query.where('branch_id', 'in', branch_ids)
-            orders = order_query.stream()
+                query = query.where('branch_id', 'in', branch_ids)
+            transactions = query.stream()
 
             product_profit_data = {}
-            for order in orders:
-                order_data = order.to_dict()
-                for item in order_data.get('line_items', []):
-                    product_id = item.get('product_id')
-                    if not product_id: continue
+            for trans in transactions:
+                trans_data = trans.to_dict()
+                for item in trans_data.get('items', []):
+                    sku = item.get('sku')
+                    if not sku: continue
                     quantity = item.get('quantity', 0)
                     revenue = item.get('final_price', 0) * quantity
-                    cogs = item.get('cost_price', 0) * quantity
+                    cogs = item.get('line_cogs', 0)
                     profit = revenue - cogs
-                    if product_id not in product_profit_data:
-                        product_profit_data[product_id] = {
-                            'product_name': item.get('product_name', 'N/A'),
-                            'category_id': product_details.get(product_id, {}).get('category_id'),
+                    if sku not in product_profit_data:
+                        product_profit_data[sku] = {
+                            'product_name': item.get('name', 'N/A'),
+                            'category_id': product_details.get(sku, {}).get('category_id'),
                             'total_quantity_sold': 0, 'total_revenue': 0, 'total_profit': 0
                         }
-                    product_profit_data[product_id]['total_quantity_sold'] += quantity
-                    product_profit_data[product_id]['total_revenue'] += revenue
-                    product_profit_data[product_id]['total_profit'] += profit
+                    product_profit_data[sku]['total_quantity_sold'] += quantity
+                    product_profit_data[sku]['total_revenue'] += revenue
+                    product_profit_data[sku]['total_profit'] += profit
 
             if not product_profit_data:
                 return {"success": True, "data": None, "message": "Không có dữ liệu bán hàng trong kỳ."}
@@ -82,22 +82,18 @@ class ReportManager:
         trực tiếp từ collection 'inventory'.
         """
         try:
-            # 1. Lấy thông tin sản phẩm và chuyển đổi timestamps
             products_snapshot = self.products_collection.stream()
             product_details = {}
             for p in products_snapshot:
                 p_data = p.to_dict()
-                # Chuyển đổi bất kỳ đối tượng datetime nào (bao gồm DatetimeWithNanoseconds) thành chuỗi
                 for key, value in p_data.items():
                     if isinstance(value, datetime):
-                        # Firestore's DatetimeWithNanoseconds needs conversion to standard datetime
                         if hasattr(value, 'to_datetime'):
                             p_data[key] = value.to_datetime().isoformat()
                         else:
                             p_data[key] = value.isoformat()
                 product_details[p.id] = p_data
 
-            # 2. Lấy dữ liệu tồn kho cho các chi nhánh được chọn
             inventory_query = self.inventory_collection
             if branch_ids:
                 inventory_query = inventory_query.where('branch_id', 'in', branch_ids)
@@ -106,21 +102,16 @@ class ReportManager:
             if not inventory_docs:
                 return {"success": True, "data": None, "message": "Không có dữ liệu tồn kho cho chi nhánh đã chọn."}
 
-            # 3. Xây dựng danh sách tồn kho chi tiết
             inventory_list = []
             total_inventory_value = 0
             total_inventory_items = 0
-
             for item_doc in inventory_docs:
                 item_data = item_doc.to_dict()
                 sku = item_data.get('sku')
                 quantity = item_data.get('stock_quantity', 0)
-                
                 average_cost = item_data.get('average_cost', 0)
                 item_value = average_cost * quantity
-
                 product_info = product_details.get(sku, {})
-
                 inventory_list.append({
                     'product_id': sku,
                     'product_name': product_info.get('name', 'N/A'),
@@ -135,7 +126,6 @@ class ReportManager:
             if not inventory_list:
                  return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
 
-            # 4. Tạo các DataFrame cho báo cáo
             inventory_df = pd.DataFrame(inventory_list)
             top_products_df = inventory_df.sort_values(by='total_value', ascending=False).head(10)
             low_stock_df = inventory_df[inventory_df['quantity'] < 10].sort_values(by='quantity')
@@ -156,12 +146,12 @@ class ReportManager:
 
     def get_revenue_report(self, start_date: datetime, end_date: datetime, branch_ids: list):
         try:
-            query = self.orders_collection.where('status', '==', 'COMPLETED') \
-                                       .where('created_at', '>=', start_date.isoformat()) \
-                                       .where('created_at', '<=', end_date.isoformat())
+            query = self.transactions_collection.where('type', '==', 'SALE') \
+                                       .where('created_at', '>=', start_date) \
+                                       .where('created_at', '<=', end_date)
             if branch_ids:
                 query = query.where('branch_id', 'in', branch_ids)
-            orders = query.stream()
+            transactions = query.stream()
 
             revenue_data = []
             top_products = {}
@@ -169,26 +159,27 @@ class ReportManager:
             total_cogs = 0
             total_orders = 0
 
-            for order in orders:
-                order_data = order.to_dict()
-                created_at = pd.to_datetime(order_data['created_at'])
-                total_revenue += order_data.get('grand_total', 0)
-                total_cogs += order_data.get('total_cogs', 0)
+            for trans in transactions:
+                trans_data = trans.to_dict()
+                created_at = trans_data['created_at']
+                total_revenue += trans_data.get('total_amount', 0)
+                total_cogs += trans_data.get('total_cogs', 0)
                 total_orders += 1
-                revenue_data.append({'date': created_at.date(), 'revenue': order_data.get('grand_total', 0)})
-                for item in order_data.get('line_items', []):
-                    prod_id = item['product_id']
-                    if prod_id not in top_products:
-                        top_products[prod_id] = {'name': item['product_name'], 'revenue': 0, 'profit': 0, 'quantity': 0}
+                revenue_data.append({'date': created_at.date(), 'revenue': trans_data.get('total_amount', 0)})
+                
+                for item in trans_data.get('items', []):
+                    sku = item['sku']
+                    if sku not in top_products:
+                        top_products[sku] = {'name': item['name'], 'revenue': 0, 'profit': 0, 'quantity': 0}
                     item_revenue = item['final_price'] * item['quantity']
-                    item_cogs = item['cost_price'] * item['quantity']
+                    item_cogs = item.get('line_cogs', 0)
                     item_profit = item_revenue - item_cogs
-                    top_products[prod_id]['revenue'] += item_revenue
-                    top_products[prod_id]['profit'] += item_profit
-                    top_products[prod_id]['quantity'] += item['quantity']
+                    top_products[sku]['revenue'] += item_revenue
+                    top_products[sku]['profit'] += item_profit
+                    top_products[sku]['quantity'] += item['quantity']
 
             if not revenue_data:
-                return False, None, "Không có đơn hàng nào trong khoảng thời gian này."
+                return False, None, "Không có giao dịch nào trong khoảng thời gian này."
 
             gross_profit = total_revenue - total_cogs
             revenue_df = pd.DataFrame(revenue_data).groupby('date')['revenue'].sum().reset_index()
@@ -210,19 +201,20 @@ class ReportManager:
             return False, None, str(e)
 
     def get_profit_loss_statement(self, start_date: datetime, end_date: datetime, branch_id: str = None):
-        order_query = self.orders_collection.where('status', '==', 'COMPLETED')\
-                                       .where('created_at', '>=', start_date.isoformat())\
-                                       .where('created_at', '<=', end_date.isoformat())
+        query = self.transactions_collection.where('type', '==', 'SALE') \
+                                       .where('created_at', '>=', start_date) \
+                                       .where('created_at', '<=', end_date)
         if branch_id:
-            order_query = order_query.where('branch_id', '==', branch_id)
-        orders = order_query.stream()
+            query = query.where('branch_id', '==', branch_id)
+        transactions = query.stream()
+        
         total_revenue = 0
         total_cogs = 0
         order_count = 0
-        for order in orders:
-            order_data = order.to_dict()
-            total_revenue += order_data.get('grand_total', 0)
-            total_cogs += order_data.get('total_cogs', 0)
+        for trans in transactions:
+            trans_data = trans.to_dict()
+            total_revenue += trans_data.get('total_amount', 0)
+            total_cogs += trans_data.get('total_cogs', 0)
             order_count += 1
 
         gross_profit = total_revenue - total_cogs
@@ -231,8 +223,8 @@ class ReportManager:
         total_op_expenses = 0
 
         cost_filters = {
-            'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat(),
+            'start_date': start_date,
+            'end_date': end_date,
         }
         if branch_id:
             cost_filters['branch_id'] = branch_id
@@ -243,10 +235,10 @@ class ReportManager:
 
         for entry in cost_entries:
             cost_in_period = 0
+            entry_date = entry['entry_date']
             if entry.get('is_amortized') and entry.get('amortization_months', 0) > 0:
                 cost_in_period = self._calculate_amortized_cost_for_period(entry, start_date, end_date)
             elif not entry.get('is_amortized'):
-                entry_date = datetime.fromisoformat(entry['entry_date']).replace(tzinfo=None)
                 if start_date <= entry_date <= end_date:
                     cost_in_period = entry['amount']
 

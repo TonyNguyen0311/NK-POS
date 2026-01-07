@@ -3,7 +3,6 @@ import streamlit as st
 import logging
 import traceback
 from google.cloud import firestore
-from google.cloud.firestore_v1.base_query import FieldFilter
 
 class AdminManager:
     def __init__(self, firebase_client, inventory_mgr):
@@ -50,52 +49,48 @@ class AdminManager:
         return deleted_counts
 
     # --------------------------------------------------------------------------
-    # HÀM QUẢN LÝ ĐƠN HÀNG
+    # HÀM QUẢN LÝ GIAO DỊCH (REFACTORED FROM ORDERS)
     # --------------------------------------------------------------------------
 
-    def get_all_orders(self):
+    def get_all_transactions(self):
+        """Lấy tất cả các giao dịch, sắp xếp theo ngày tạo mới nhất."""
         try:
-            orders_ref = self.db.collection('orders')
-            query = orders_ref.order_by("created_at", direction=firestore.Query.DESCENDING)
+            transactions_ref = self.db.collection('transactions')
+            query = transactions_ref.order_by("created_at", direction=firestore.Query.DESCENDING)
             docs = query.stream()
-            orders = [doc.to_dict() for doc in docs]
-            return orders
+            transactions = [doc.to_dict() for doc in docs]
+            return transactions
         except Exception as e:
-            st.error(f"Lỗi khi lấy danh sách đơn hàng: {e}")
+            st.error(f"Lỗi khi lấy danh sách giao dịch: {e}")
+            logging.error(f"Error fetching transactions, potential index issue: {e}")
             return []
 
-    def delete_order_and_revert_stock(self, order_id: str, current_user_id: str):
+    def delete_transaction_and_revert_stock(self, transaction_id: str, current_user_id: str):
         """
-        Xóa một đơn hàng, các giao dịch tài chính liên quan và hoàn trả tồn kho.
-        Hành động được thực hiện trong một transaction để đảm bảo tính toàn vẹn dữ liệu.
-        Cú pháp này (ref.get(transaction=...)) được cho là mạnh mẽ hơn.
+        Xóa một giao dịch (chỉ loại SALE) và hoàn trả tồn kho.
+        Hành động được thực hiện trong một Firestore transaction để đảm bảo tính toàn vẹn.
         """
-        logging.info(f"--- BẮT ĐẦU XÓA ĐƠN HÀNG {order_id} (phiên bản sửa lỗi cú pháp) ---")
-        order_ref = self.db.collection('orders').document(order_id)
-        txns_query = self.db.collection('transactions').where(filter=FieldFilter("order_id", "==", order_id))
+        logging.info(f"--- BẮT ĐẦU XÓA GIAO DỊCH {transaction_id} ---")
+        transaction_ref = self.db.collection('transactions').document(transaction_id)
 
         @firestore.transactional
         def _process_deletion_in_transaction(transaction):
-            logging.info(f"[{order_id}] (Transaction) Bắt đầu.")
+            logging.info(f"[{transaction_id}] (Transaction) Bắt đầu.")
             # --- GIAI ĐOẠN ĐỌC ---
-            logging.info(f"[{order_id}] (Transaction) Đọc đơn hàng: {order_ref.path}")
-            order_doc = order_ref.get(transaction=transaction)
-
-            if not order_doc.exists:
-                raise Exception(f"Đơn hàng {order_id} không tồn tại.")
-
-            logging.info(f"[{order_id}] (Transaction) Đọc giao dịch tài chính.")
-            related_txn_docs = list(txns_query.stream(transaction=transaction))
-            logging.info(f"[{order_id}] (Transaction) Đã đọc {len(related_txn_docs)} giao dịch.")
+            trans_doc = transaction_ref.get(transaction=transaction)
+            if not trans_doc.exists:
+                raise Exception(f"Giao dịch {transaction_id} không tồn tại.")
+            trans_data = trans_doc.to_dict()
+            
+            if trans_data.get('type') != 'SALE':
+                raise Exception(f"Chỉ có thể xóa các giao dịch loại 'SALE'. Giao dịch này có loại '{trans_data.get('type')}'.")
 
             # --- GIAI ĐOẠN GHI ---
-            logging.info(f"[{order_id}] (Transaction) Bắt đầu ghi.")
-            order_data = order_doc.to_dict()
-            branch_id = order_data.get('branch_id')
-            items = order_data.get('items', [])
+            branch_id = trans_data.get('branch_id')
+            items = trans_data.get('items', [])
 
             if branch_id and items:
-                logging.info(f"[{order_id}] (Transaction) Hoàn trả tồn kho.")
+                logging.info(f"[{transaction_id}] (Transaction) Hoàn trả tồn kho.")
                 for item in items:
                     sku = item.get('sku')
                     quantity = item.get('quantity')
@@ -104,24 +99,19 @@ class AdminManager:
                             transaction=transaction,
                             sku=sku,
                             branch_id=branch_id,
-                            delta=quantity,
-                            order_id=f"REVERT-{order_id}",
+                            delta=quantity, # Hoàn trả lại hàng
+                            order_id=f"REVERT-{transaction_id}",
                             user_id=current_user_id
                         )
             
-            logging.info(f"[{order_id}] (Transaction) Xóa {len(related_txn_docs)} giao dịch.")
-            for doc in related_txn_docs:
-                transaction.delete(doc.reference)
-
-            logging.info(f"[{order_id}] (Transaction) Xóa đơn hàng chính.")
-            transaction.delete(order_ref)
+            logging.info(f"[{transaction_id}] (Transaction) Xóa giao dịch chính.")
+            transaction.delete(transaction_ref)
 
         try:
-            transaction = self.db.transaction()
-            _process_deletion_in_transaction(transaction)
-            logging.info(f"--- HOÀN TẤT XÓA ĐƠN HÀNG {order_id} ---")
-            return True, f"Đã xóa thành công đơn hàng {order_id}."
+            _process_deletion_in_transaction(self.db.transaction())
+            logging.info(f"--- HOÀN TẤT XÓA GIAO DỊCH {transaction_id} ---")
+            return True, f"Đã xóa thành công giao dịch {transaction_id} và hoàn trả tồn kho."
         except Exception as e:
             tb_str = traceback.format_exc()
-            logging.error(f"LỖI CUỐI CÙNG KHI XÓA ĐƠN HÀNG {order_id}: {e}\nFULL TRACEBACK:\n{tb_str}")
-            return False, f"Lỗi nghiêm trọng trong quá trình xóa: {e}"
+            logging.error(f"LỖI KHI XÓA GIAO DỊCH {transaction_id}: {e}\n{tb_str}")
+            return False, f"Lỗi trong quá trình xóa: {e}"

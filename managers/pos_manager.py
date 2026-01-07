@@ -14,7 +14,7 @@ class POSManager:
         self.promotion_mgr = promotion_mgr
         self.cost_mgr = cost_mgr
         self.price_mgr = price_mgr
-        self.orders_collection = self.db.collection('orders')
+        # self.orders_collection = self.db.collection('orders') # REMOVED: No longer writing to 'orders'
 
     # --------------------------------------------------------------------------
     # HÀM QUẢN LÝ GIỎ HÀNG
@@ -37,7 +37,6 @@ class POSManager:
                 "name": product_data['name'],
                 "category_id": product_data.get('category_id'),
                 "original_price": current_price,
-                # REMOVED: 'cost_price' is no longer stored in the cart.
                 "quantity": 1,
                 "stock": stock_quantity,
                 "image_id": image_id
@@ -63,6 +62,7 @@ class POSManager:
     # --------------------------------------------------------------------------
 
     def calculate_cart_state(self, cart_items: dict, customer_id: str, manual_discount_input: dict):
+        # ... (implementation remains the same)
         active_promo = self.promotion_mgr.get_active_price_program()
         calculated_items = {}
         subtotal = 0
@@ -118,7 +118,7 @@ class POSManager:
         }
 
     # --------------------------------------------------------------------------
-    # HÀM XỬ LÝ TẠO ĐƠN HÀNG
+    # HÀM XỬ LÝ TẠO ĐƠN HÀNG (REFACTORED)
     # --------------------------------------------------------------------------
 
     def _create_order_id(self, branch_id):
@@ -144,91 +144,56 @@ class POSManager:
 
                 # Stage 1: Update inventory and get the accurate COGS for each item
                 for sku, item in cart_state['items'].items():
-                    # This is the CORE of the fix: Get COGS from the transaction itself
                     accurate_cost_price = self.inventory_mgr.update_inventory(
-                        transaction=transaction,
-                        sku=sku,
-                        branch_id=branch_id,
-                        delta=-item['quantity'],
-                        order_id=order_id,
-                        user_id=seller_id
+                        transaction=transaction, sku=sku, branch_id=branch_id,
+                        delta=-item['quantity'], order_id=order_id, user_id=seller_id
                     )
-
                     line_cogs = accurate_cost_price * item['quantity']
                     total_cogs += line_cogs
-                    
-                    # Append the accurate cost data to a new list
                     order_items_to_save.append({
-                        **item, 
-                        "cost_price": accurate_cost_price,
-                        "line_cogs": line_cogs,
+                        **item, "cost_price": accurate_cost_price, "line_cogs": line_cogs
                     })
 
-                # Stage 2: Calculate final prices and discounts based on the saved items
+                # Stage 2: Calculate final prices and discounts
                 finalized_items = []
                 for item in order_items_to_save:
                     line_total_before_manual = item['line_total_after_auto_discount']
                     total_before_manual = cart_state['subtotal'] - cart_state['total_auto_discount']
-                    
-                    proportional_manual_discount = 0
-                    if total_before_manual > 0:
-                        proportional_manual_discount = (line_total_before_manual / total_before_manual) * cart_state['total_manual_discount']
-                    
+                    proportional_manual_discount = (line_total_before_manual / total_before_manual) * cart_state['total_manual_discount'] if total_before_manual > 0 else 0
                     final_line_total = line_total_before_manual - proportional_manual_discount
                     final_price_per_unit = final_line_total / item['quantity'] if item['quantity'] > 0 else 0
-
                     finalized_items.append({
-                        "sku": item['sku'],
-                        "name": item['name'],
-                        "quantity": item['quantity'],
-                        "original_price": item['original_price'],
-                        "cost_price": item['cost_price'], # The accurate one
-                        "line_cogs": item['line_cogs'], # The accurate one
-                        "auto_discount_applied": item['auto_discount_applied'],
+                        "sku": item['sku'], "name": item['name'], "quantity": item['quantity'],
+                        "original_price": item['original_price'], "cost_price": item['cost_price'],
+                        "line_cogs": item['line_cogs'], "auto_discount_applied": item['auto_discount_applied'],
                         "manual_discount_applied": proportional_manual_discount,
-                        "final_price": final_price_per_unit,
-                        "image_id": item.get('image_id')
+                        "final_price": final_price_per_unit, "image_id": item.get('image_id')
                     })
 
-                # Stage 3: Construct final order and transaction data
-                final_order_data = {
-                    "id": order_id,
-                    "branch_id": branch_id,
-                    "seller_id": seller_id,
-                    "customer_id": customer_id if customer_id != "-" else None,
+                # Stage 3: Construct the single source of truth: The Transaction Data
+                transaction_data = {
+                    "id": order_id, "type": "SALE", "status": "COMPLETED", "payment_method": "Tiền mặt",
+                    "created_at": creation_timestamp, "branch_id": branch_id,
+                    "cashier_id": seller_id, "customer_id": customer_id if customer_id != "-" else None,
                     "items": finalized_items,
-                    "subtotal": cart_state['subtotal'],
+                    "sub_total": cart_state['subtotal'],
+                    "total_amount": cart_state['grand_total'],
+                    "total_cogs": total_cogs,
                     "total_auto_discount": cart_state['total_auto_discount'],
                     "total_manual_discount": cart_state['total_manual_discount'],
-                    "grand_total": cart_state['grand_total'],
-                    "total_cogs": total_cogs, # The accurate one
+                    "discount_amount": cart_state['total_auto_discount'] + cart_state['total_manual_discount'],
                     "promotion_id": cart_state['active_promotion']['id'] if cart_state['active_promotion'] else None,
-                    "created_at": creation_timestamp.isoformat(),
-                    "status": "COMPLETED"
                 }
 
-                transaction_data = {
-                    "id": order_id, "branch_id": branch_id, "created_at": creation_timestamp,
-                    "total_amount": final_order_data["grand_total"], "total_cogs": total_cogs,
-                    "sub_total": final_order_data["subtotal"],
-                    "discount_amount": final_order_data["total_auto_discount"] + final_order_data["total_manual_discount"],
-                    "cashier_id": seller_id, "items": finalized_items,
-                    "customer_id": customer_id if customer_id != "-" else None,
-                    "payment_method": "Tiền mặt", "status": "COMPLETED", "type": "SALE"
-                }
-
-                # Stage 4: Update other services and write documents
+                # Stage 4: Update other services and write the single transaction document
                 if customer_id != "-":
                     self.customer_mgr.update_customer_stats(
-                        transaction=transaction,
-                        customer_id=customer_id,
-                        amount_spent_delta=final_order_data['grand_total'],
-                        points_delta=int(final_order_data['grand_total'] / 1000) 
+                        transaction=transaction, customer_id=customer_id,
+                        amount_spent_delta=transaction_data['total_amount'],
+                        points_delta=int(transaction_data['total_amount'] / 1000) 
                     )
                 
-                order_ref = self.orders_collection.document(order_id)
-                transaction.set(order_ref, final_order_data)
-
+                # Set the single, authoritative transaction document
                 transaction_ref = self.db.collection('transactions').document(order_id)
                 transaction.set(transaction_ref, transaction_data)
 
