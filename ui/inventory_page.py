@@ -205,8 +205,8 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
 
         @st.cache_data(ttl=3600, hash_funcs={AuthManager: hash_auth_manager})
         def get_user_map(auth_manager):
-            all_users = auth_manager.get_all_users()
-            return {user['uid']: user['displayName'] for user in all_users}
+            all_users = auth_manager.list_users()
+            return {user['uid']: user['display_name'] for user in all_users}
 
         user_map = get_user_map(auth_mgr)
         vouchers = inv_mgr.get_vouchers_by_branch(branch_id=selected_branch, limit=100)
