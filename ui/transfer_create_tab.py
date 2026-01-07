@@ -43,7 +43,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
         for i, item in enumerate(st.session_state.transfer_items):
             cols = st.columns([4, 2, 1])
             cols[0].write(f"**{item.get('product_name', item['sku'])} ({item['sku']})** - SL: {item['quantity']}")
-            if cols[1].button(f"Xóa", key=f"del_{i}", use_container_width=True):
+            if cols[1].button(f"Xóa", key=f"del_{i}", width='stretch'):
                 st.session_state.transfer_items.pop(i)
                 st.rerun()
         
@@ -69,7 +69,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
                 quantity = form_cols[1].number_input("Số lượng", min_value=1, max_value=max(1, int(current_stock)), step=1, key=f"qty_{selected_sku}")
 
                 # Dùng form_submit_button riêng cho việc thêm sản phẩm
-                if form_cols[2].form_submit_button("Thêm", use_container_width=True):
+                if form_cols[2].form_submit_button("Thêm", width='stretch'):
                     if quantity > current_stock:
                         st.warning(f"Số lượng tồn kho không đủ.")
                     else:
@@ -89,7 +89,7 @@ def render_create_transfer_form(from_branch_id, all_branches, inventory_manager,
         notes = st.text_area("Ghi chú (nếu có)")
         
         # Nút submit chính của form
-        submitted = st.form_submit_button("Tạo Phiếu Luân Chuyển", use_container_width=True, disabled=not st.session_state.transfer_items)
+        submitted = st.form_submit_button("Tạo Phiếu Luân Chuyển", width='stretch', disabled=not st.session_state.transfer_items)
         
         if submitted:
             try:

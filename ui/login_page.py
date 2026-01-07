@@ -26,7 +26,7 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                 admin_password = st.text_input("Password (ít nhất 6 ký tự)", type="password")
                 admin_display_name = st.text_input("Tên hiển thị", "Quản trị viên")
 
-                submitted = st.form_submit_button("Hoàn tất Thiết lập", use_container_width=True, type="primary")
+                submitted = st.form_submit_button("Hoàn tất Thiết lập", width='stretch', type="primary")
 
                 if submitted:
                     if len(admin_password) < 6:
@@ -64,7 +64,7 @@ def render_login_page(auth_mgr: AuthManager, branch_mgr: BranchManager):
                 username = st.text_input("Tên đăng nhập")
                 password = st.text_input("Mật khẩu", type="password")
                 remember_me = st.checkbox("Ghi nhớ đăng nhập trên thiết bị này")
-                login_button = st.form_submit_button("Đăng nhập", use_container_width=True, type="primary")
+                login_button = st.form_submit_button("Đăng nhập", width='stretch', type="primary")
 
                 if login_button:
                     status, data = auth_mgr.login(username, password, remember_me)

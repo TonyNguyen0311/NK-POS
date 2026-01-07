@@ -33,7 +33,7 @@ def render_pnl_report_page(report_mgr, branch_mgr, auth_mgr):
         format_func=lambda k: branch_options[k]
     )
 
-    if st.button("📊 Xem Báo cáo", use_container_width=True):
+    if st.button("📊 Xem Báo cáo", width='stretch'):
         start_datetime = datetime.combine(start_date, datetime.min.time())
         end_datetime = datetime.combine(end_date, datetime.max.time())
         branch_id_for_query = None if selected_branch_key == 'all' else selected_branch_key

@@ -74,7 +74,7 @@ def show_edit_user_dialog(user_data, auth_mgr: AuthManager, branch_mgr: BranchMa
         else:
             st.info("Admin có toàn quyền truy cập tất cả chi nhánh.")
         c1, c2 = st.columns(2)
-        if c1.form_submit_button("Lưu thay đổi", use_container_width=True, type="primary"):
+        if c1.form_submit_button("Lưu thay đổi", width='stretch', type="primary"):
             update_data = {
                 "display_name": display_name,
                 "role": role,
@@ -87,7 +87,7 @@ def show_edit_user_dialog(user_data, auth_mgr: AuthManager, branch_mgr: BranchMa
                 st.rerun()
             except Exception as e:
                 st.error(f"Lỗi khi cập nhật: {e}")
-        if c2.form_submit_button("Hủy", use_container_width=True):
+        if c2.form_submit_button("Hủy", width='stretch'):
             st.session_state.editing_user = None
             st.rerun()
 
@@ -96,7 +96,7 @@ def show_delete_user_dialog(user_data, auth_mgr: AuthManager):
     st.warning(f"Bạn có chắc chắn muốn xóa người dùng **{user_data.get('display_name')}** ({user_data.get('username')}) không?")
     st.write("Hành động này không thể hoàn tác.")
     c1, c2 = st.columns(2)
-    if c1.button("Xóa vĩnh viễn", use_container_width=True, type="primary"):
+    if c1.button("Xóa vĩnh viễn", width='stretch', type="primary"):
         try:
             auth_mgr.delete_user_record(user_data['uid'])
             st.toast("Đã xóa người dùng.", icon="🗑️")
@@ -104,7 +104,7 @@ def show_delete_user_dialog(user_data, auth_mgr: AuthManager):
             st.rerun()
         except Exception as e:
             st.error(f"Lỗi khi xóa: {e}")
-    if c2.button("Hủy", use_container_width=True):
+    if c2.button("Hủy", width='stretch'):
         st.session_state.deleting_user = None
         st.rerun()
 
@@ -136,7 +136,7 @@ def render_create_user_form(auth_mgr: AuthManager, branch_mgr: BranchManager):
             )
         else:
             st.info("Admin sẽ có quyền truy cập tất cả chi nhánh.")
-        if st.form_submit_button("Tạo Người dùng", use_container_width=True, type="primary"):
+        if st.form_submit_button("Tạo Người dùng", width='stretch', type="primary"):
             if not all([username, display_name, password, role]):
                 st.warning("Vui lòng điền đầy đủ các trường có dấu (*).")
             elif role != 'admin' and not assigned_branches:
@@ -211,12 +211,12 @@ def render_user_list(users, current_user, auth_mgr: AuthManager, branch_mgr: Bra
                     btn_cols = action_col.columns(num_buttons)
                     button_idx = 0
                     if permissions['can_edit']:
-                        if btn_cols[button_idx].button("Sửa", key=f"edit_{uid}", use_container_width=True):
+                        if btn_cols[button_idx].button("Sửa", key=f"edit_{uid}", width='stretch'):
                             st.session_state.editing_user = user
                             st.rerun()
                         button_idx += 1
                     if permissions['can_delete']:
-                        if btn_cols[button_idx].button("Xóa", key=f"del_{uid}", use_container_width=True, type="secondary"):
+                        if btn_cols[button_idx].button("Xóa", key=f"del_{uid}", width='stretch', type="secondary"):
                             st.session_state.deleting_user = user
                             st.rerun()
                 else:

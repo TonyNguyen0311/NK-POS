@@ -14,7 +14,7 @@ from utils.formatters import format_currency, format_number
 @st.dialog("Xem chứng từ")
 def view_receipt_dialog(image_bytes):
     st.image(image_bytes, use_column_width=True)
-    if st.button("Đóng", use_container_width=True):
+    if st.button("Đóng", width='stretch'):
         st.session_state.viewing_attachment_id = None # Clear state
         st.rerun()
 
@@ -94,7 +94,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
 
             uploaded_file = st.file_uploader("Ảnh hóa đơn/chứng từ", type=["jpg", "jpeg", "png"])
             
-            if st.form_submit_button("Lưu Chi phí", use_container_width=True):
+            if st.form_submit_button("Lưu Chi phí", width='stretch'):
                 if not all([name, amount > 0, selected_group_id]):
                     st.error("Vui lòng điền đầy đủ: Tên, Số tiền, và Nhóm chi phí.")
                 else:
@@ -165,7 +165,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
 
                         with c3:
                             if entry.get('attachment_id'):
-                                if st.button("Xem ảnh", key=f"view_receipt_{entry['id']}", use_container_width=True):
+                                if st.button("Xem ảnh", key=f"view_receipt_{entry['id']}", width='stretch'):
                                     st.session_state.viewing_attachment_id = entry['attachment_id']
                                     st.rerun()
 
@@ -175,14 +175,14 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                                     st.session_state[f"delete_confirm_{entry['id']}"] = False
                                 
                                 if st.session_state[f"delete_confirm_{entry['id']}"]:
-                                    if st.button("❌ XÁC NHẬN", key=f"confirm_delete_{entry['id']}", use_container_width=True, type="primary"):
+                                    if st.button("❌ XÁC NHẬN", key=f"confirm_delete_{entry['id']}", width='stretch', type="primary"):
                                         success, msg = cost_mgr.delete_cost_entry(entry['id'])
                                         if success: st.success(msg)
                                         else: st.error(msg)
                                         st.session_state[f"delete_confirm_{entry['id']}"] = False
                                         st.rerun()
                                 else:
-                                    if st.button("Xóa", key=f"delete_{entry['id']}", use_container_width=True):
+                                    if st.button("Xóa", key=f"delete_{entry['id']}", width='stretch'):
                                         st.session_state[f"delete_confirm_{entry['id']}"] = True
                                         st.rerun()
 

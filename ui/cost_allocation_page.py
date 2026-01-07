@@ -57,14 +57,14 @@ def render_rules_management(cost_mgr, all_branches):
         branch_list = [b for b in all_branches if b['id'] != 'HQ']
         branch_id = form_cols[0].selectbox("Chọn chi nhánh", options=[b['id'] for b in branch_list], format_func=lambda b_id: next(b['name'] for b in branch_list if b['id'] == b_id), key="rule_branch_select")
         percentage = form_cols[1].number_input("Tỷ lệ %", min_value=1, max_value=100, step=1, key="rule_percentage")
-        if form_cols[2].form_submit_button("Thêm", use_container_width=True):
+        if form_cols[2].form_submit_button("Thêm", width='stretch'):
             if not any(s['branch_id'] == branch_id for s in st.session_state.rule_splits):
                 st.session_state.rule_splits.append({'branch_id': branch_id, 'percentage': percentage})
                 st.rerun()
             else:
                 st.warning("Chi nhánh này đã được thêm.")
 
-        submitted = st.form_submit_button("Lưu Quy tắc mới", use_container_width=True)
+        submitted = st.form_submit_button("Lưu Quy tắc mới", width='stretch')
         if submitted:
             if not rule_name:
                 st.error("Vui lòng nhập tên quy tắc.")
@@ -96,7 +96,7 @@ def render_rules_management(cost_mgr, all_branches):
             for split in rule['splits']:
                 branch_name = next((b['name'] for b in all_branches if b['id'] == split['branch_id']), split['branch_id'])
                 st.write(f"- **{branch_name}**: {split['percentage']}%")
-            if st.button("Xóa Quy tắc", key=f"del_rule_{rule['id']}", use_container_width=True):
+            if st.button("Xóa Quy tắc", key=f"del_rule_{rule['id']}", width='stretch'):
                 cost_mgr.delete_allocation_rule(rule['id'])
                 st.success("Đã xóa quy tắc.")
                 st.rerun()
@@ -128,7 +128,7 @@ def render_apply_allocation(cost_mgr, hq_branch_id, user_id, unallocated_costs):
                 key=f"rule_{cost['id']}"
             )
             
-            if cols[3].button("Áp dụng", key=f"apply_{cost['id']}", use_container_width=True):
+            if cols[3].button("Áp dụng", key=f"apply_{cost['id']}", width='stretch'):
                 if not selected_rule_id:
                     st.error("Vui lòng chọn một quy tắc.")
                 else:
