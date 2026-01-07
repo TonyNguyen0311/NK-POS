@@ -202,6 +202,13 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     # --- TAB 3: VOUCHER HISTORY ---
     elif st.session_state.active_inventory_tab == "📜 Lịch sử Chứng từ":
         render_section_header("Lịch sử Chứng từ Kho")
+
+        @st.cache_data(ttl=3600)
+        def get_user_map(auth_manager):
+            all_users = auth_manager.get_all_users()
+            return {user['uid']: user['displayName'] for user in all_users}
+
+        user_map = get_user_map(auth_mgr)
         vouchers = inv_mgr.get_vouchers_by_branch(branch_id=selected_branch, limit=100)
 
         if not vouchers:
@@ -231,7 +238,9 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
                         header_cols[3].success("Hoàn thành")
 
                     with st.expander("Xem chi tiết"):
-                        st.markdown(f"**Người tạo:** `{voucher['created_by']}`")
+                        created_by_id = voucher['created_by']
+                        created_by_name = user_map.get(created_by_id, created_by_id) # Fallback to ID
+                        st.markdown(f"**Người tạo:** {created_by_name}")
                         st.markdown(f"**Ghi chú:** *{voucher.get('notes', 'Không có')}*")
                         if 'supplier' in voucher: st.markdown(f"**Nhà cung cấp:** {voucher['supplier']}")
                         render_sub_header("Sản phẩm trong chứng từ:")
