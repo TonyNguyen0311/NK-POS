@@ -14,37 +14,25 @@ class AdminManager:
     # --------------------------------------------------------------------------
 
     def _delete_collection_in_batches(self, coll_ref, batch_size):
-        """
-        Xóa tất cả các tài liệu trong một collection bằng cách sử dụng phân trang (cursors).
-        """
         deleted_count = 0
         last_doc = None
-
         while True:
             query = coll_ref.order_by('__name__').limit(batch_size)
             if last_doc:
                 query = query.start_after(last_doc)
-
             docs = list(query.stream())
             if not docs:
                 break
-
             batch = self.db.batch()
             for doc in docs:
                 batch.delete(doc.reference)
             batch.commit()
-
             deleted_count += len(docs)
             last_doc = docs[-1]
             logging.info(f"Đã xóa một lô {len(docs)} tài liệu từ {coll_ref.id}.")
-        
         return deleted_count
 
     def clear_inventory_data(self):
-        """
-        NGUY HIỂM: Xóa tất cả dữ liệu từ 'inventory', 'inventory_vouchers', 
-        và 'inventory_transactions'. Không thể hoàn tác.
-        """
         collections_to_clear = [
             'inventory',
             'inventory_vouchers',
@@ -58,8 +46,6 @@ class AdminManager:
                 deleted_counts[coll_name] = count
             except Exception as e:
                 deleted_counts[coll_name] = f"Lỗi: {e}"
-
-        # Lệnh st.cache_data.clear() đã được chuyển sang UI
         return deleted_counts
 
     # --------------------------------------------------------------------------
@@ -67,7 +53,6 @@ class AdminManager:
     # --------------------------------------------------------------------------
 
     def get_all_orders(self):
-        """Lấy tất cả các đơn hàng, sắp xếp theo ngày tạo gần nhất."""
         try:
             orders_ref = self.db.collection('orders')
             query = orders_ref.order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -80,48 +65,50 @@ class AdminManager:
 
     def delete_order_and_revert_stock(self, order_id: str, current_user_id: str):
         """
-        Xóa một đơn hàng và hoàn trả lại tồn kho của các sản phẩm trong đơn hàng đó.
-        Hành động này được thực hiện trong một transaction để đảm bảo an toàn.
+        Xóa một đơn hàng, các giao dịch tài chính liên quan và hoàn trả tồn kho.
+        Hành động được thực hiện trong một transaction để đảm bảo tính toàn vẹn dữ liệu.
         """
         order_ref = self.db.collection('orders').document(order_id)
-        transaction_ref = self.db.collection('transactions').document(order_id)
 
         try:
             @firestore.transactional
             def _process_deletion(transaction):
+                # 1. Đọc tài liệu đơn hàng
                 order_doc = transaction.get(order_ref)
                 if not order_doc.exists:
-                    raise Exception("Đơn hàng không tồn tại.")
+                    raise Exception("Đơn hàng không tồn tại hoặc đã bị xóa.")
                 
                 order_data = order_doc.to_dict()
                 branch_id = order_data.get('branch_id')
                 items = order_data.get('items', [])
 
-                if not branch_id or not items:
-                    transaction.delete(order_ref)
-                    if transaction.get(transaction_ref).exists:
-                         transaction.delete(transaction_ref)
-                    return
+                # 2. Hoàn trả tồn kho (nếu có)
+                if branch_id and items:
+                    for item in items:
+                        sku = item.get('sku')
+                        quantity = item.get('quantity')
+                        if sku and quantity > 0:
+                            self.inventory_mgr.update_inventory(
+                                transaction=transaction,
+                                sku=sku,
+                                branch_id=branch_id,
+                                delta=quantity,  # Cộng trả lại kho
+                                order_id=f"REVERT-{order_id}",
+                                user_id=current_user_id
+                            )
 
-                for item in items:
-                    sku = item.get('sku')
-                    quantity = item.get('quantity')
-                    if sku and quantity > 0:
-                        self.inventory_mgr.update_inventory(
-                            transaction=transaction,
-                            sku=sku,
-                            branch_id=branch_id,
-                            delta=quantity,
-                            order_id=f"REVERT-{order_id}",
-                            user_id=current_user_id
-                        )
+                # 3. Tìm và xóa các tài liệu giao dịch tài chính (transactions) liên quan
+                txns_query = self.db.collection('transactions').where(filter=FieldFilter("order_id", "==", order_id))
+                related_txn_docs = txns_query.stream(transaction=transaction)
+                for doc in related_txn_docs:
+                    transaction.delete(doc.reference)
 
+                # 4. Xóa chính đơn hàng đó
                 transaction.delete(order_ref)
-                if transaction.get(transaction_ref).exists:
-                    transaction.delete(transaction_ref)
 
             _process_deletion(self.db.transaction())
-            return True, f"Đã xóa thành công đơn hàng {order_id} và hoàn trả tồn kho."
+            return True, f"Đã xóa thành công đơn hàng {order_id} và các dữ liệu liên quan."
+
         except Exception as e:
             logging.error(f"Lỗi khi xóa đơn hàng {order_id}: {e}")
             return False, f"Lỗi: {e}"

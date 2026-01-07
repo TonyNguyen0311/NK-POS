@@ -10,7 +10,6 @@ def render_admin_page(admin_mgr: AdminManager, auth_mgr: AuthManager):
     # --- Initialize Session State ---
     if "confirm_delete_inventory" not in st.session_state:
         st.session_state.confirm_delete_inventory = False
-    # SỬA LỖI: Thay đổi cách quản lý trạng thái xóa đơn hàng
     if "order_to_delete" not in st.session_state:
         st.session_state.order_to_delete = None
     if "delete_result" not in st.session_state:
@@ -36,7 +35,6 @@ def render_admin_page(admin_mgr: AdminManager, auth_mgr: AuthManager):
 def render_order_deletion_tab(admin_mgr, current_user_id):
     render_section_header("❌ Xóa Đơn Hàng và Hoàn Trả Tồn Kho")
 
-    # SỬA LỖI: Hiển thị kết quả xóa một cách rõ ràng
     if st.session_state.delete_result:
         success, message = st.session_state.delete_result
         if success:
@@ -46,7 +44,7 @@ def render_order_deletion_tab(admin_mgr, current_user_id):
         if st.button("OK"):
             st.session_state.delete_result = None
             st.rerun()
-        return # Dừng render phần còn lại để người dùng thấy kết quả
+        return 
 
     st.markdown("Chức năng này cho phép bạn xóa một đơn hàng cụ thể. Hệ thống sẽ **tự động cộng trả lại số lượng tồn kho** tương ứng với đơn hàng bị xóa. Hành động này không thể hoàn tác.")
 
@@ -66,10 +64,10 @@ def render_order_deletion_tab(admin_mgr, current_user_id):
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     st.divider()
 
-    # SỬA LỖI: Quy trình xác nhận và xóa được thiết kế lại
     if not st.session_state.order_to_delete:
         order_ids = [order['id'] for order in orders]
         selected_order_id = st.selectbox("Chọn Đơn Hàng Cần Xóa:", options=[""] + order_ids)
+        # Cập nhật: Nút này vẫn nên là primary để bắt đầu quy trình
         if selected_order_id and st.button("Xóa Đơn Hàng Được Chọn...", type="primary"):
             st.session_state.order_to_delete = selected_order_id
             st.rerun()
@@ -78,15 +76,13 @@ def render_order_deletion_tab(admin_mgr, current_user_id):
         st.error(f"Bạn có chắc chắn muốn xóa vĩnh viễn đơn hàng **{st.session_state.order_to_delete}** và hoàn trả tồn kho không?")
         
         col1, col2, _ = st.columns([2, 2, 8])
-        if col1.button("CÓ, TÔI CHẮC CHẮN", type="primary"):
+        # Cập nhật: Đổi nút xác nhận nguy hiểm thành 'secondary'
+        if col1.button("CÓ, TÔI CHẮC CHẮN", type="secondary"):
             with st.spinner("Đang xử lý..."):
                 success, message = admin_mgr.delete_order_and_revert_stock(st.session_state.order_to_delete, current_user_id)
-                # Lưu kết quả vào session state
                 st.session_state.delete_result = (success, message)
                 if success:
-                    # Xóa cache ở phía UI sau khi thành công
                     st.cache_data.clear()
-            # Reset và rerun để hiển thị kết quả
             st.session_state.order_to_delete = None
             st.rerun()
 
@@ -98,12 +94,12 @@ def render_inventory_cleanup_tab(admin_mgr):
     render_section_header("🗑️ Dọn dẹp toàn bộ Dữ liệu Kho")
     st.markdown("Chức năng này sẽ xoá **TOÀN BỘ** dữ liệu trong các collection sau: `inventory`, `inventory_vouchers`, và `inventory_transactions`. Dữ liệu này sẽ bị xoá vĩnh viễn.")
 
-    # Giữ nguyên logic của tab này vì nó đã đúng
     if "operation_result" not in st.session_state:
         st.session_state.operation_result = None
     if "show_result" not in st.session_state:
         st.session_state.show_result = False
 
+    # Nút này vẫn là secondary vì nó là hành động nguy hiểm
     if st.button("Xóa Tất Cả Dữ Liệu Kho...", type="secondary"):
         st.session_state.confirm_delete_inventory = True
         st.session_state.operation_result = None
@@ -114,12 +110,13 @@ def render_inventory_cleanup_tab(admin_mgr):
         
         col1, col2, _ = st.columns([2, 2, 8])
         
-        if col1.button("CÓ, TÔI CHẮC CHẮN MUỐN XOÁ", type="primary"):
+        # Cập nhật: Đổi nút xác nhận nguy hiểm thành 'secondary'
+        if col1.button("CÓ, TÔI CHẮC CHẮN MUỐN XOÁ", type="secondary"):
             with st.spinner("Đang xử lý... Quá trình này có thể mất vài phút."):
                 result = admin_mgr.clear_inventory_data()
                 st.session_state.operation_result = result
                 st.session_state.show_result = True
-                st.cache_data.clear() # Xóa cache sau khi dọn dẹp
+                st.cache_data.clear() 
             st.session_state.confirm_delete_inventory = False
             st.rerun()
 
