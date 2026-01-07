@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from managers.cost_manager import CostManager
 from managers.branch_manager import BranchManager
 from managers.auth_manager import AuthManager
+from managers.product_manager import ProductManager # Import ProductManager
 from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector
 from utils.formatters import format_currency, format_number
 
@@ -18,7 +19,7 @@ def view_receipt_dialog(image_bytes):
         st.rerun()
 
 # --- Main Page Rendering ---
-def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr: AuthManager):
+def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, auth_mgr: AuthManager, prod_mgr: ProductManager): # Add prod_mgr
     render_page_title("Ghi nhận Chi phí")
 
     user = auth_mgr.get_current_user_info()
@@ -31,8 +32,8 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     default_branch_id = user.get('default_branch_id')
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches()}
     
-    # FIX: Use the correct key "CostCategories"
-    cost_groups_raw = cost_mgr.get_all_category_items("CostCategories")
+    # FIX: Use prod_mgr to get cost categories
+    cost_groups_raw = prod_mgr.get_all_category_items("CostCategories")
     group_map = {g['id']: g['category_name'] for g in cost_groups_raw}
 
     # Handle dialog trigger
