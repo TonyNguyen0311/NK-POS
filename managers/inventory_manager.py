@@ -84,13 +84,13 @@ class InventoryManager:
         if not items:
             raise ValueError("Chứng từ phải có ít nhất một sản phẩm.")
 
-        prefix_map = {
+        prefix_map = st.secrets.get("voucher_prefixes", { # Load from secrets
             "GOODS_RECEIPT": "VGR",
             "GOODS_ISSUE": "VGI",
             "ADJUSTMENT": "VADJ",
             "REVERSAL_GOODS_RECEIPT": "VCAN",
             "REVERSAL_GOODS_ISSUE": "VCAN",
-        }
+        })
         prefix = prefix_map.get(voucher_type, "VOU")
         voucher_id = f"{prefix}-{uuid.uuid4().hex[:10].upper()}"
         
@@ -134,25 +134,48 @@ class InventoryManager:
 
     def create_adjustment(self, branch_id, user_id, items, reason, notes, adjustment_date):
         if not items: raise ValueError("Phiếu điều chỉnh phải có ít nhất một sản phẩm.")
-        # Logic tính delta vẫn cần đọc dữ liệu trước, điều này không an toàn khi đứng độc lập
-        # TODO: Cải thiện logic đọc tồn kho để nó xảy ra bên trong giao dịch
-        items_with_delta = []
-        for item in items:
-            current_item_state = self.get_inventory_item(item['sku'], branch_id)
-            current_quantity = current_item_state.get('stock_quantity', 0) if current_item_state else 0
-            delta = item['actual_quantity'] - current_quantity
-            if delta != 0:
-                items_with_delta.append({
-                    'sku': item['sku'], 'quantity': delta, 'actual_quantity': item['actual_quantity'],
-                    'quantity_before': current_quantity
-                })
-        if not items_with_delta: return None
+
+        @firestore.transactional
+        def _transactional_adjustment(transaction):
+            items_with_delta = []
+            for item in items:
+                inv_doc_ref = self.inventory_col.document(f"{item['sku'].upper()}_{branch_id}")
+                inv_snapshot = inv_doc_ref.get(transaction=transaction)
+                
+                current_quantity = 0
+                if inv_snapshot.exists:
+                    current_quantity = inv_snapshot.to_dict().get('stock_quantity', 0)
+                
+                delta = item['actual_quantity'] - current_quantity
+                
+                if delta != 0:
+                    items_with_delta.append({
+                        'sku': item['sku'], 
+                        'quantity': delta,
+                        'actual_quantity': item['actual_quantity'],
+                        'quantity_before': current_quantity
+                    })
+            
+            if not items_with_delta:
+                return None
+
+            voucher_id = self.execute_voucher_creation_in_transaction(
+                transaction,
+                f'ADJUSTMENT_{reason.upper()}',
+                branch_id,
+                user_id,
+                items_with_delta,
+                adjustment_date,
+                notes,
+                reason=reason
+            )
+            return voucher_id
+
+        voucher_id = _transactional_adjustment(self.db.transaction())
+
+        if voucher_id:
+            self._clear_caches()
         
-        transaction = self.db.transaction()
-        voucher_id = self.execute_voucher_creation_in_transaction(
-            transaction, f'ADJUSTMENT_{reason.upper()}', branch_id, user_id, items_with_delta, adjustment_date, notes, reason=reason
-        )
-        self._clear_caches()
         return voucher_id
 
     def cancel_voucher(self, voucher_id: str, user_id: str):

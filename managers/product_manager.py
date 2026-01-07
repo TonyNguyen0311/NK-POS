@@ -5,6 +5,7 @@ import streamlit as st
 from google.cloud import firestore
 from managers.image_handler import ImageHandler
 from managers.price_manager import PriceManager
+from managers.category_manager import CategoryManager
 
 def hash_product_manager(manager):
     # This simple hash function tells Streamlit that the ProductManager object is static
@@ -17,6 +18,7 @@ class ProductManager:
         self.products_collection = self.db.collection('products')
         self._image_handler = None  # Private attribute for lazy loading
         self.product_image_folder_id = st.secrets.get("drive_product_folder_id") or st.secrets.get("drive_folder_id")
+        self.category_manager = CategoryManager(firebase_client)
 
     @property
     def image_handler(self):
@@ -30,28 +32,12 @@ class ProductManager:
                 logging.error(f"Failed to initialize ImageHandler for products: {e}")
         return self._image_handler
 
-    # --- Generic Category/Brand/Unit Methods ---
-    # Using st.cache_data for these generic methods to improve performance
-    @st.cache_data(ttl=600)
-    def get_all_category_items(_self, collection_name: str):
-        try:
-            docs = _self.db.collection(collection_name).order_by("created_at").stream()
-            return [{"id": doc.id, **doc.to_dict()} for doc in docs]
-        except Exception as e:
-            st.error(f"Lỗi khi tải dữ liệu từ {collection_name}: {e}")
-            return []
+    # --- Generic Category/Brand/Unit Methods (using CategoryManager) ---
+    def get_all_category_items(self, collection_name: str):
+        return self.category_manager.get_all_category_items(collection_name)
 
-    def add_category_item(self, collection_name: str, data: dict):
-        try:
-            doc_ref = self.db.collection(collection_name).document()
-            data['id'] = doc_ref.id
-            data['created_at'] = firestore.SERVER_TIMESTAMP
-            doc_ref.set(data)
-            # Clear the cache for the specific category
-            self.get_all_category_items.clear() # Clears all instances of this cache
-            return True, f"Thêm mục mới vào {collection_name} thành công."
-        except Exception as e:
-            return False, f"Lỗi khi thêm mục: {e}"
+    def add_category_item(self, collection_name: str, data: dict, id_prefix: str):
+        return self.category_manager.add_category_item(collection_name, data, id_prefix)
 
     # --- Product Specific Methods ---
     def create_product(self, product_data):

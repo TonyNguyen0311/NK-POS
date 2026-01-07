@@ -168,7 +168,27 @@ class ReportManager:
                  return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ." }
 
             inventory_df = pd.DataFrame(inventory_list)
-            return { "success": True, "data": inventory_df }
+
+            # KPIs
+            total_inventory_value = inventory_df['total_value'].sum()
+            total_inventory_items = inventory_df['quantity'].sum()
+
+            # Aggregations
+            top_products_by_value_df = inventory_df.groupby(['product_id', 'product_name']) \
+                                                   .agg(total_quantity=('quantity', 'sum'), total_value=('total_value', 'sum')) \
+                                                   .sort_values(by='total_value', ascending=False).head(10).reset_index()
+
+            low_stock_items_df = inventory_df[inventory_df['quantity'] < 10].sort_values(by='quantity')
+            
+            report_data = {
+                "total_inventory_value": total_inventory_value,
+                "total_inventory_items": total_inventory_items,
+                "top_products_by_value_df": top_products_by_value_df,
+                "low_stock_items_df": low_stock_items_df,
+                "inventory_details_df": inventory_df
+            }
+            
+            return { "success": True, "data": report_data }
         except Exception as e:
             logging.error(f"Lỗi khi tạo báo cáo tồn kho: {e}")
             return { "success": False, "message": str(e) }
@@ -180,17 +200,52 @@ class ReportManager:
                                        .where('created_at', '<=', end_date)
             if branch_ids:
                 query = query.where('branch_id', 'in', branch_ids)
-            transactions = query.stream()
+            transactions = list(query.stream())
 
-            revenue_data = []
-            for trans in transactions:
-                revenue_data.append(trans.to_dict())
-
-            if not revenue_data:
+            if not transactions:
                 return {"success": True, "data": None, "message": "Không có giao dịch trong kỳ."}
 
+            revenue_data = [t.to_dict() for t in transactions]
             revenue_df = pd.DataFrame(revenue_data)
-            return {"success": True, "data": revenue_df}
+            
+            # Convert created_at to datetime objects if they are not already
+            if not pd.api.types.is_datetime64_any_dtype(revenue_df['created_at']):
+                 revenue_df['created_at'] = pd.to_datetime(revenue_df['created_at'])
+
+            # KPIs
+            total_revenue = revenue_df['total_amount'].sum()
+            total_cogs = revenue_df['total_cogs'].sum()
+            total_profit = total_revenue - total_cogs
+            total_orders = len(revenue_df)
+            average_order_value = total_revenue / total_orders if total_orders > 0 else 0
+            
+            # Revenue by Day
+            revenue_df['date'] = revenue_df['created_at'].dt.date
+            revenue_by_day = revenue_df.groupby('date')['total_amount'].sum().reset_index()
+            revenue_by_day = revenue_by_day.rename(columns={'date':'Ngày', 'total_amount':'Doanh thu'}).set_index('Ngày')
+
+            # Top Products
+            items_series = revenue_df['items'].explode()
+            items_df = pd.DataFrame(items_series.tolist())
+            items_df['revenue'] = items_df['final_price'] * items_df['quantity']
+            items_df['profit'] = items_df['revenue'] - items_df['line_cogs']
+            
+            top_products = items_df.groupby(['sku', 'name']).agg(
+                Doanh_thu = ('revenue', 'sum'),
+                Lợi_nhuận = ('profit', 'sum'),
+                Số_lượng = ('quantity', 'sum')
+            ).sort_values(by='Doanh_thu', ascending=False).head(5).reset_index()
+
+            report_data = {
+                "total_revenue": total_revenue,
+                "total_profit": total_profit,
+                "total_orders": total_orders,
+                "average_order_value": average_order_value,
+                "revenue_by_day": revenue_by_day,
+                "top_products_by_revenue": top_products
+            }
+
+            return {"success": True, "data": report_data, "message": "Lấy báo cáo doanh thu thành công"}
         except Exception as e:
             logging.error(f"Lỗi khi lấy báo cáo doanh thu: {e}")
             return {"success": False, "message": str(e)}

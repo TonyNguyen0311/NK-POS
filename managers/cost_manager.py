@@ -6,6 +6,7 @@ import streamlit as st
 from google.cloud import firestore
 from dateutil.relativedelta import relativedelta
 from managers.image_handler import ImageHandler
+from managers.category_manager import CategoryManager
 
 def hash_cost_manager(manager):
     return "CostManager"
@@ -18,6 +19,24 @@ class CostManager:
         self.allocation_rules_col = self.db.collection('cost_allocation_rules')
         self._image_handler = None
         self.receipt_image_folder_id = st.secrets.get("drive_receipt_folder_id") or st.secrets.get("drive_folder_id")
+        self.category_manager = CategoryManager(firebase_client) # Sử dụng CategoryManager
+
+    # --- Cost Group Methods (using CategoryManager) ---
+    def get_all_cost_groups(self):
+        return self.category_manager.get_all_category_items('cost_groups')
+
+    def add_cost_group(self, group_name: str, description: str):
+        return self.category_manager.add_category_item(
+            'cost_groups',
+            {'group_name': group_name, 'description': description, 'created_at': datetime.now().isoformat()},
+            id_prefix="CG"
+        )
+
+    def update_cost_group(self, group_id: str, updates: dict):
+        return self.category_manager.update_category_item('cost_groups', group_id, updates)
+
+    def delete_cost_group(self, group_id: str):
+        return self.category_manager.delete_category_item('cost_groups', group_id)
 
     @property
     def image_handler(self):
@@ -141,46 +160,6 @@ class CostManager:
             }
         }
     
-    # ... (các hàm còn lại giữ nguyên không đổi) ...
-    def get_all_category_items(self, collection_name: str):
-        try:
-            docs = self.db.collection(collection_name).order_by("created_at").stream()
-            return [{"id": doc.id, **doc.to_dict()} for doc in docs]
-        except Exception as e:
-            logging.error(f"Error getting items from {collection_name}: {e}")
-            st.error(f"Lỗi khi tải dữ liệu từ {collection_name}: {e}")
-            return []
-
-    def add_category_item(self, collection_name: str, data: dict):
-        try:
-            doc_ref = self.db.collection(collection_name).document()
-            data['id'] = doc_ref.id
-            data['created_at'] = firestore.SERVER_TIMESTAMP
-            doc_ref.set(data)
-            self.get_all_category_items.clear()
-            return True
-        except Exception as e:
-            logging.error(f"Error adding item to {collection_name}: {e}")
-            raise e
-
-    def update_category_item(self, collection_name: str, doc_id: str, updates: dict):
-        try:
-            self.db.collection(collection_name).document(doc_id).update(updates)
-            self.get_all_category_items.clear()
-            return True
-        except Exception as e:
-            logging.error(f"Error updating item {doc_id} in {collection_name}: {e}")
-            raise e
-
-    def delete_category_item(self, collection_name: str, doc_id: str):
-        try:
-            self.db.collection(collection_name).document(doc_id).delete()
-            self.get_all_category_items.clear()
-            return True
-        except Exception as e:
-            logging.error(f"Error deleting item {doc_id} in {collection_name}: {e}")
-            raise e
-            
     def get_allocation_rules(self):
         try:
             rules = self.allocation_rules_col.stream()
@@ -236,7 +215,6 @@ class CostManager:
             logging.error(f"Error querying cost entries: {e}")
             return []
 
-CostManager.get_all_category_items = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_all_category_items)
 CostManager.get_cost_entry = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_cost_entry)
 CostManager.query_cost_entries = st.cache_data(ttl=300, hash_funcs={CostManager: hash_cost_manager})(CostManager.query_cost_entries)
 CostManager.get_allocation_rules = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_allocation_rules)
