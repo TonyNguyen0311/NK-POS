@@ -7,6 +7,7 @@ from managers.image_handler import ImageHandler
 from managers.price_manager import PriceManager
 
 def hash_product_manager(manager):
+    # This simple hash function tells Streamlit that the ProductManager object is static
     return "ProductManager"
 
 class ProductManager:
@@ -30,9 +31,11 @@ class ProductManager:
         return self._image_handler
 
     # --- Generic Category/Brand/Unit Methods ---
-    def get_all_category_items(self, collection_name: str):
+    # Using st.cache_data for these generic methods to improve performance
+    @st.cache_data(ttl=600)
+    def get_all_category_items(_self, collection_name: str):
         try:
-            docs = self.db.collection(collection_name).order_by("created_at").stream()
+            docs = _self.db.collection(collection_name).order_by("created_at").stream()
             return [{"id": doc.id, **doc.to_dict()} for doc in docs]
         except Exception as e:
             st.error(f"Lỗi khi tải dữ liệu từ {collection_name}: {e}")
@@ -44,7 +47,8 @@ class ProductManager:
             data['id'] = doc_ref.id
             data['created_at'] = firestore.SERVER_TIMESTAMP
             doc_ref.set(data)
-            self.get_all_category_items.clear()
+            # Clear the cache for the specific category
+            self.get_all_category_items.clear() # Clears all instances of this cache
             return True, f"Thêm mục mới vào {collection_name} thành công."
         except Exception as e:
             return False, f"Lỗi khi thêm mục: {e}"
@@ -65,7 +69,6 @@ class ProductManager:
             }
             self.products_collection.document(sku).set(new_product_data)
 
-            # Handle image upload if an image is provided
             if image_file and self.image_handler and self.product_image_folder_id:
                 new_image_id = self.image_handler.upload_image(
                     image_file, self.product_image_folder_id, base_filename=sku
@@ -73,7 +76,9 @@ class ProductManager:
                 if new_image_id:
                     self.products_collection.document(sku).update({'image_id': new_image_id})
             
+            # Clear relevant caches
             self.get_all_products.clear()
+            self.get_listed_products_for_branch.clear() # Clear branch product list cache
             return True, f"Tạo sản phẩm '{product_data['name']}' (SKU: {sku}) thành công!"
 
         except Exception as e:
@@ -93,12 +98,10 @@ class ProductManager:
             current_image_id = product_doc.to_dict().get('image_id')
             new_image_id = current_image_id
 
-            # Logic for image deletion
             if (delete_image_flag or image_file) and current_image_id and self.image_handler:
                 self.image_handler.delete_image_by_id(current_image_id)
-                new_image_id = None # Set to None after deletion
+                new_image_id = None
 
-            # Logic for image upload
             if image_file and self.image_handler and self.product_image_folder_id:
                 uploaded_id = self.image_handler.upload_image(
                     image_file, self.product_image_folder_id, base_filename=product_id
@@ -111,9 +114,10 @@ class ProductManager:
             
             product_ref.update(updates)
 
-            # Clear relevant caches
+            # Clear all relevant caches
             self.get_all_products.clear()
             self.get_product_by_id.clear()
+            self.get_listed_products_for_branch.clear()
 
             return True, f"Sản phẩm {product_id} đã được cập nhật thành công."
 
@@ -126,21 +130,22 @@ class ProductManager:
             product_ref = self.products_collection.document(product_id)
             product_doc = product_ref.get().to_dict()
             
-            # Delete associated image from Google Drive
             if product_doc and product_doc.get('image_id') and self.image_handler:
                 self.image_handler.delete_image_by_id(product_doc['image_id'])
             
-            # Delete the product document from Firestore
             product_ref.delete()
+
+            # Clear all relevant caches
             self.get_all_products.clear()
             self.get_product_by_id.clear()
+            self.get_listed_products_for_branch.clear()
             return True, f"Sản phẩm {product_id} đã được xóa vĩnh viễn."
         except Exception as e:
             logging.error(f"Error deleting product {product_id}: {e}")
             return False, f"Lỗi khi xóa sản phẩm: {e}"
 
     # --- Data Retrieval Methods ---
-    @st.cache_data(ttl=600, hash_funcs={object: hash_product_manager})
+    @st.cache_data(ttl=600)
     def get_all_products(_self, active_only: bool = True):
         try:
             query = _self.products_collection.order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -153,7 +158,7 @@ class ProductManager:
             st.error(f"Lỗi khi tải danh sách sản phẩm: {e}")
             return []
 
-    @st.cache_data(ttl=600, hash_funcs={object: hash_product_manager})
+    @st.cache_data(ttl=600)
     def get_product_by_id(_self, product_id):
         if not product_id: return None
         try:
@@ -163,14 +168,14 @@ class ProductManager:
             logging.error(f"Error fetching product {product_id}: {e}")
             return None
 
-    def get_listed_products_for_branch(self, branch_id: str):
-        if not self.price_mgr:
+    @st.cache_data(ttl=300)
+    def get_listed_products_for_branch(_self, branch_id: str):
+        if not _self.price_mgr:
             st.error("Lỗi: Price Manager không được khởi tạo.")
             return []
         try:
-            all_products = self.get_all_products(active_only=True)
-            # FIX: Called the correct method name 'get_active_prices_for_branch'
-            branch_prices = self.price_mgr.get_active_prices_for_branch(branch_id)
+            all_products = _self.get_all_products(active_only=True)
+            branch_prices = _self.price_mgr.get_active_prices_for_branch(branch_id)
             branch_price_map = {p['sku']: p for p in branch_prices}
             
             listed_products = []

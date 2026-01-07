@@ -99,22 +99,30 @@ def get_corrected_creds(secrets_key):
         creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
     return creds_dict
 
+@st.cache_resource
+def connect_to_firebase():
+    """Connects to Firebase and returns the client object, cached across all user sessions."""
+    try:
+        firebase_creds_info = get_corrected_creds("firebase_credentials")
+        pyrebase_config = st.secrets["pyrebase_config"].to_dict()
+        return FirebaseClient(firebase_creds_info, pyrebase_config)
+    except Exception as e:
+        # Stop the app if Firebase connection fails
+        st.error(f"Lỗi nghiêm trọng khi khởi tạo Firebase: {e}. Vui lòng liên hệ quản trị viên.")
+        st.stop()
+
+
 def init_managers():
+    """Initializes all managers for the current user session."""
     if 'managers_initialized' in st.session_state:
         return
 
-    try:
-        if 'firebase_client' not in st.session_state:
-            firebase_creds_info = get_corrected_creds("firebase_credentials")
-            pyrebase_config = st.secrets["pyrebase_config"].to_dict()
-            st.session_state.firebase_client = FirebaseClient(firebase_creds_info, pyrebase_config)
-    except Exception as e:
-        st.error(f"Lỗi nghiêm trọng khi khởi tạo Firebase: {e}")
-        st.stop()
+    # Get the globally cached Firebase client
+    fb_client = connect_to_firebase()
+    
+    st.session_state.firebase_client = fb_client
 
-    fb_client = st.session_state.firebase_client
-
-    # Instantiate all managers
+    # Instantiate all managers - this part still runs once per session, which is correct
     st.session_state.branch_mgr = BranchManager(fb_client)
     st.session_state.settings_mgr = SettingsManager(fb_client)
     st.session_state.inventory_mgr = InventoryManager(fb_client)

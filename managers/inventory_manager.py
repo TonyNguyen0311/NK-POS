@@ -17,7 +17,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
     transactions_col = db.collection('inventory_transactions')
 
     # --- STAGE 1: READS ---
-    # Read all necessary inventory documents first to get their current state.
     inventory_states = {}
     for item in items:
         sku = item['sku']
@@ -30,15 +29,13 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         }
 
     # --- STAGE 2: CALCULATIONS & WRITES ---
-    # Now that all reads are done, perform calculations and then all write operations.
-    
     processed_transaction_ids = []
     all_write_operations = []
 
     for item in items:
         sku = item['sku']
         delta = item['quantity']
-        purchase_price = item.get('purchase_price')  # Will be None for adjustments
+        purchase_price = item.get('purchase_price')
 
         state = inventory_states[sku]
         inv_doc_ref = state["ref"]
@@ -54,7 +51,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         new_quantity = current_quantity + delta
         new_avg_cost = current_avg_cost
 
-        # Recalculate average cost only on positive delta (receiving stock)
         if delta > 0 and purchase_price is not None and purchase_price >= 0:
             current_total_value = current_quantity * current_avg_cost
             adjustment_value = delta * purchase_price
@@ -63,7 +59,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         if new_quantity < 0:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku}. Giao dịch thất bại.")
 
-        # Prepare inventory document update
         inventory_update_data = {
             'sku': sku,
             'branch_id': voucher_data['branch_id'],
@@ -73,7 +68,6 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         }
         all_write_operations.append(('set', inv_doc_ref, inventory_update_data, True))
 
-        # Prepare inventory transaction log
         trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
         trans_ref = transactions_col.document(trans_id)
         transaction_log_data = {
@@ -87,17 +81,12 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         all_write_operations.append(('set', trans_ref, transaction_log_data, False))
         processed_transaction_ids.append(trans_id)
 
-    # Perform all writes
-    # 1. Main voucher document
     transaction.set(voucher_ref, {**voucher_data, 'transaction_ids': processed_transaction_ids})
     
-    # 2. All inventory and transaction log updates
     for op, ref, data, merge in all_write_operations:
         if op == 'set':
             transaction.set(ref, data, merge=merge)
 
-def hash_inventory_manager(manager):
-    return "InventoryManager"
 
 class InventoryManager:
     def __init__(self, firebase_client):
@@ -109,15 +98,8 @@ class InventoryManager:
     def update_inventory(self, transaction, sku: str, branch_id: str, delta: int, order_id: str, user_id: str):
         """
         Updates inventory for a given SKU within an existing Firestore transaction.
-        This is designed to be called during an order creation process.
-
-        Args:
-            transaction: The Firestore transaction object.
-            sku (str): The product SKU.
-            branch_id (str): The branch ID.
-            delta (int): The change in quantity (should be negative for sales).
-            order_id (str): The ID of the order causing this inventory change.
-            user_id (str): The ID of the user (seller) creating the order.
+        IMPORTANT: This function does NOT clear caches. Cache clearing must be handled
+        by the calling function (e.g., POSManager) after the transaction is successfully committed.
         """
         if delta == 0:
             return
@@ -136,13 +118,11 @@ class InventoryManager:
         if new_quantity < 0:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku} tại chi nhánh {branch_id}. Giao dịch thất bại.")
 
-        # Update inventory document (do not change average_cost on sale)
         transaction.update(inv_doc_ref, {
             'stock_quantity': new_quantity,
             'last_updated': datetime.now().isoformat()
         })
 
-        # Create inventory transaction log for the sale
         trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
         trans_ref = self.transactions_col.document(trans_id)
         transaction.set(trans_ref, {
@@ -161,8 +141,11 @@ class InventoryManager:
             'timestamp': datetime.now().isoformat(),
         })
 
-    def _clear_caches(self, branch_id: str):
-        st.cache_data.clear()
+    def _clear_caches(self):
+        """Clears specific caches related to inventory and vouchers."""
+        self.get_inventory_by_branch.clear()
+        self.get_inventory_item.clear()
+        self.get_vouchers_by_branch.clear()
 
     def create_goods_receipt(self, branch_id, user_id, items, supplier, notes, receipt_date):
         if not items:
@@ -180,7 +163,7 @@ class InventoryManager:
 
         transaction = self.db.transaction()
         _create_voucher_and_transactions_transactional(transaction, self.db, voucher_ref, voucher_data, items)
-        self._clear_caches(branch_id)
+        self._clear_caches()
         return voucher_id
 
     def create_adjustment(self, branch_id, user_id, items, reason, notes, adjustment_date):
@@ -192,6 +175,7 @@ class InventoryManager:
 
         items_with_delta = []
         for item in items:
+            # Use the cached method to get current state
             current_item_state = self.get_inventory_item(item['sku'], branch_id)
             current_quantity = current_item_state.get('stock_quantity', 0) if current_item_state else 0
             delta = item['actual_quantity'] - current_quantity
@@ -211,7 +195,7 @@ class InventoryManager:
 
         transaction = self.db.transaction()
         _create_voucher_and_transactions_transactional(transaction, self.db, voucher_ref, voucher_data, items_with_delta)
-        self._clear_caches(branch_id)
+        self._clear_caches()
         return voucher_id
 
     def cancel_voucher(self, voucher_id: str, user_id: str):
@@ -235,36 +219,32 @@ class InventoryManager:
         
         transaction = self.db.transaction()
         
-        # We need another transactional function for cancellation to be safe
         _create_voucher_and_transactions_transactional(transaction, self.db, cancellation_voucher_ref, cancellation_voucher_data, reversal_items)
 
-        # Update the original voucher status in the same transaction
         transaction.update(original_voucher_ref, {'status': 'CANCELLED', 'cancelled_by': user_id, 'cancelled_at': created_at})
         
-        self._clear_caches(voucher_dict['branch_id'])
+        self._clear_caches()
         return cancellation_voucher_id
 
-    def get_inventory_item(self, sku: str, branch_id: str):
+    @st.cache_data(ttl=60)
+    def get_inventory_item(_self, sku: str, branch_id: str):
         if not sku or not branch_id: return None
-        doc_ref = self.inventory_col.document(f"{sku.upper()}_{branch_id}")
+        doc_ref = _self.inventory_col.document(f"{sku.upper()}_{branch_id}")
         doc = doc_ref.get()
         return doc.to_dict() if doc.exists else None
 
-    def get_inventory_by_branch(self, branch_id: str) -> dict:
+    @st.cache_data(ttl=60)
+    def get_inventory_by_branch(_self, branch_id: str) -> dict:
         try:
             if not branch_id: return {}
-            docs = self.inventory_col.where('branch_id', '==', branch_id).stream()
+            docs = _self.inventory_col.where('branch_id', '==', branch_id).stream()
             return {doc.to_dict()['sku']: doc.to_dict() for doc in docs if 'sku' in doc.to_dict()}
         except Exception as e:
             logging.error(f"Error fetching inventory for branch '{branch_id}': {e}")
             return {}
 
-    def get_vouchers_by_branch(self, branch_id: str, limit: int = 100):
+    @st.cache_data(ttl=120)
+    def get_vouchers_by_branch(_self, branch_id: str, limit: int = 100):
         if not branch_id: return []
-        query = self.vouchers_col.where('branch_id', '==', branch_id).order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
+        query = _self.vouchers_col.where('branch_id', '==', branch_id).order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
         return [doc.to_dict() for doc in query.stream()]
-
-# Caching for performance
-InventoryManager.get_inventory_item = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_item)
-InventoryManager.get_vouchers_by_branch = st.cache_data(ttl=120, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_vouchers_by_branch)
-InventoryManager.get_inventory_by_branch = st.cache_data(ttl=60, hash_funcs={InventoryManager: hash_inventory_manager})(InventoryManager.get_inventory_by_branch)
