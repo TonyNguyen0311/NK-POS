@@ -38,8 +38,9 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         form_title = "✏️ Chỉnh sửa Sản phẩm" if editing_product else "➕ Thêm Sản Phẩm Mới"
         
         with st.expander(form_title, expanded=st.session_state.editing_product_id is not None):
-            categories = prod_mgr.get_all_category_items("product_categories")
-            units = prod_mgr.get_all_category_items("product_units")
+            # FIX: Use correct keys "ProductCategories" and "ProductUnits"
+            categories = prod_mgr.get_all_category_items("ProductCategories")
+            units = prod_mgr.get_all_category_items("ProductUnits")
             cat_opts = {c['id']: c['category_name'] for c in categories}
             unit_opts = {u['id']: u['unit_name'] for u in units}
 
@@ -48,10 +49,15 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                 name = st.text_input("**Tên sản phẩm**", value=editing_product['name'] if editing_product else "")
                 
                 col1, col2 = st.columns(2)
-                default_cat_idx = list(cat_opts.keys()).index(editing_product['category_id']) if editing_product and editing_product.get('category_id') in cat_opts else 0
+                # Handle case where no categories/units exist yet
+                default_cat_idx = 0
+                if cat_opts and editing_product and editing_product.get('category_id') in cat_opts:
+                    default_cat_idx = list(cat_opts.keys()).index(editing_product['category_id'])
                 cat_id = col1.selectbox("**Danh mục**", options=list(cat_opts.keys()), format_func=lambda x: cat_opts.get(x, "N/A"), index=default_cat_idx)
                 
-                default_unit_idx = list(unit_opts.keys()).index(editing_product['unit_id']) if editing_product and editing_product.get('unit_id') in unit_opts else 0
+                default_unit_idx = 0
+                if unit_opts and editing_product and editing_product.get('unit_id') in unit_opts:
+                    default_unit_idx = list(unit_opts.keys()).index(editing_product['unit_id'])
                 unit_id = col2.selectbox("**Đơn vị**", options=list(unit_opts.keys()), format_func=lambda x: unit_opts.get(x, "N/A"), index=default_unit_idx)
                 
                 barcode = st.text_input("Barcode", value=editing_product['barcode'] if editing_product else "")
@@ -60,7 +66,6 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
                 delete_image = False
                 image_id_to_edit = editing_product.get('image_id') if editing_product else None
                 
-                # NEW: Securely display the image
                 display_image(image_id_to_edit, width=150)
                 
                 if image_id_to_edit:
@@ -102,7 +107,8 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         st.info("Chưa có sản phẩm nào.")
         return
     
-    cat_names = {c['id']: c['category_name'] for c in prod_mgr.get_all_category_items("product_categories")}
+    # FIX: Use correct key "ProductCategories"
+    cat_names = {c['id']: c['category_name'] for c in prod_mgr.get_all_category_items("ProductCategories")}
 
     h_cols = st.columns([1, 1, 4, 2, 1, 2])
     h_cols[0].markdown("**SKU**")
@@ -117,7 +123,6 @@ def render_product_catalog_page(prod_mgr: ProductManager, auth_mgr: AuthManager)
         p_cols = st.columns([1, 1, 4, 2, 1, 2])
         p_cols[0].write(p['sku'])
         
-        # NEW: Securely display the image in the list
         with p_cols[1]:
             display_image(p.get('image_id'), width=60)
 
