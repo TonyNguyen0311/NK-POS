@@ -7,7 +7,6 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 class AdminManager:
     def __init__(self, firebase_client, inventory_mgr):
         self.db = firebase_client.db
-        # SỬA LỖI: Thêm inventory_mgr để có thể hoàn trả tồn kho
         self.inventory_mgr = inventory_mgr
 
     # --------------------------------------------------------------------------
@@ -60,11 +59,11 @@ class AdminManager:
             except Exception as e:
                 deleted_counts[coll_name] = f"Lỗi: {e}"
 
-        st.cache_data.clear()
+        # Lệnh st.cache_data.clear() đã được chuyển sang UI
         return deleted_counts
 
     # --------------------------------------------------------------------------
-    # HÀM QUẢN LÝ ĐƠN HÀNG (MỚI)
+    # HÀM QUẢN LÝ ĐƠN HÀNG
     # --------------------------------------------------------------------------
 
     def get_all_orders(self):
@@ -76,7 +75,6 @@ class AdminManager:
             orders = [doc.to_dict() for doc in docs]
             return orders
         except Exception as e:
-            # Xử lý trường hợp collection chưa tồn tại hoặc lỗi khác
             st.error(f"Lỗi khi lấy danh sách đơn hàng: {e}")
             return []
 
@@ -100,13 +98,11 @@ class AdminManager:
                 items = order_data.get('items', [])
 
                 if not branch_id or not items:
-                    # Nếu không có thông tin chi nhánh hoặc sản phẩm, chỉ cần xóa đơn hàng
                     transaction.delete(order_ref)
                     if transaction.get(transaction_ref).exists:
                          transaction.delete(transaction_ref)
                     return
 
-                # Hoàn trả tồn kho cho từng sản phẩm
                 for item in items:
                     sku = item.get('sku')
                     quantity = item.get('quantity')
@@ -115,19 +111,16 @@ class AdminManager:
                             transaction=transaction,
                             sku=sku,
                             branch_id=branch_id,
-                            delta=quantity,  # Cộng trả lại số lượng
+                            delta=quantity,
                             order_id=f"REVERT-{order_id}",
                             user_id=current_user_id
                         )
 
-                # Xóa đơn hàng và giao dịch (nếu có)
                 transaction.delete(order_ref)
                 if transaction.get(transaction_ref).exists:
                     transaction.delete(transaction_ref)
 
             _process_deletion(self.db.transaction())
-            # Xóa cache sau khi thay đổi dữ liệu
-            st.cache_data.clear()
             return True, f"Đã xóa thành công đơn hàng {order_id} và hoàn trả tồn kho."
         except Exception as e:
             logging.error(f"Lỗi khi xóa đơn hàng {order_id}: {e}")
