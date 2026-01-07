@@ -54,10 +54,13 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
 
     st.divider()
 
-    # --- DATA LOADING --- #
+    # --- DATA LOADING (REFACTORED) --- #
     all_catalog_products = prod_mgr.get_all_products(active_only=False)
-    all_prices = price_mgr.get_all_prices()
-    prices_in_branch = {p['sku']: p for p in all_prices if p.get('branch_id') == selected_branch_id}
+    
+    # Use the new efficient method to get prices for the selected branch
+    prices_in_branch_list = price_mgr.get_active_prices_for_branch(selected_branch_id)
+    prices_in_branch = {p['sku']: p for p in prices_in_branch_list}
+    
     listed_skus = prices_in_branch.keys()
     
     unlisted_products = [p for p in all_catalog_products if p['sku'] not in listed_skus]
@@ -66,7 +69,7 @@ def render_business_products_page(auth_mgr: AuthManager, branch_mgr: BranchManag
     # --- LIST NEW PRODUCT --- #
     with st.expander("➕ Niêm yết sản phẩm mới vào chi nhánh", expanded=True):
         if not all_catalog_products:
-            st.warning("Chưa có sản phẩm nào trong danh mục chung. Vui lòng thêm sản phẩm ở trang 'Danh mục Sản phẩm' trước.")
+            st.warning("Chưa có sản phẩm nào trong danh mục chung. Vui lòng thêm sản phẩm ở trang 'Quản lý Sản phẩm' trước.")
         elif not unlisted_products:
             st.info("Tất cả sản phẩm trong danh mục đã được niêm yết tại chi nhánh này.")
         else:
