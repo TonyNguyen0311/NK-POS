@@ -35,27 +35,20 @@ class StockTransferManager:
             "items": items,
             "notes": notes,
             "dispatch_info": None,
-            "receipt_info": None
+            "receipt_info": None,
+            "cancellation_info": None
         }
         
         self.transfers_col.document(transfer_id).set(request_data)
         return transfer_id
 
     @firestore.transactional
-    def dispatch_transfer(self, transaction, transfer_id: str, user_id: str):
-        """
-        Thực thi việc xuất kho trong một giao dịch. Hàm này nên được gọi bởi một hàm wrapper bên ngoài.
-        """
+    def _dispatch_transfer_in_transaction(self, transaction, transfer_id: str, user_id: str):
         transfer_ref = self.transfers_col.document(transfer_id)
         transfer_doc = transfer_ref.get(transaction=transaction)
-
-        if not transfer_doc.exists:
-            raise FileNotFoundError(f"Không tìm thấy yêu cầu luân chuyển kho với ID: {transfer_id}")
-        
+        if not transfer_doc.exists: raise FileNotFoundError(f"Không tìm thấy yêu cầu luân chuyển kho với ID: {transfer_id}")
         transfer_data = transfer_doc.to_dict()
-
-        if transfer_data.get('status') != 'PENDING':
-            raise ValueError(f"Chỉ có thể xuất kho cho yêu cầu ở trạng thái 'PENDING'.")
+        if transfer_data.get('status') != 'PENDING': raise ValueError(f"Chỉ có thể xuất kho cho yêu cầu ở trạng thái 'PENDING'.")
 
         notes = f"Xuất kho cho phiếu luân chuyển {transfer_id} đến chi nhánh {transfer_data['destination_branch_id']}."
         issue_items = [{'sku': item['sku'], 'quantity': -abs(item.get('quantity', 0))} for item in transfer_data['items'] if item.get('quantity', 0) > 0]
@@ -64,30 +57,21 @@ class StockTransferManager:
             transaction, "GOODS_ISSUE", transfer_data['source_branch_id'], user_id, issue_items, datetime.now(), notes
         )
         
-        dispatch_info = {
-            "dispatched_by": user_id,
-            "dispatched_at": datetime.now().isoformat(),
-            "source_voucher_id": issue_voucher_id
-        }
-
+        dispatch_info = {"dispatched_by": user_id, "dispatched_at": datetime.now().isoformat(), "source_voucher_id": issue_voucher_id}
         transaction.update(transfer_ref, {"status": "IN_TRANSIT", "dispatch_info": dispatch_info})
         return issue_voucher_id
 
+    def dispatch_transfer_transactional(self, transfer_id: str, user_id: str):
+        transaction = self.db.transaction()
+        return self._dispatch_transfer_in_transaction(transaction, transfer_id, user_id)
+
     @firestore.transactional
-    def receive_transfer(self, transaction, transfer_id: str, user_id: str):
-        """
-        Thực thi việc nhận hàng trong một giao dịch. Hàm này nên được gọi bởi một hàm wrapper bên ngoài.
-        """
+    def _receive_transfer_in_transaction(self, transaction, transfer_id: str, user_id: str):
         transfer_ref = self.transfers_col.document(transfer_id)
         transfer_doc = transfer_ref.get(transaction=transaction)
-
-        if not transfer_doc.exists:
-            raise FileNotFoundError(f"Không tìm thấy yêu cầu luân chuyển kho với ID: {transfer_id}")
-        
+        if not transfer_doc.exists: raise FileNotFoundError(f"Không tìm thấy yêu cầu luân chuyển kho với ID: {transfer_id}")
         transfer_data = transfer_doc.to_dict()
-
-        if transfer_data.get('status') != 'IN_TRANSIT':
-            raise ValueError(f"Chỉ có thể nhận hàng cho yêu cầu ở trạng thái 'IN_TRANSIT'.")
+        if transfer_data.get('status') != 'IN_TRANSIT': raise ValueError(f"Chỉ có thể nhận hàng cho yêu cầu ở trạng thái 'IN_TRANSIT'.")
 
         notes = f"Nhập kho từ phiếu luân chuyển {transfer_id} từ chi nhánh {transfer_data['source_branch_id']}."
         
@@ -96,27 +80,33 @@ class StockTransferManager:
             transfer_data['items'], datetime.now(), notes, supplier="Luân chuyển nội bộ"
         )
 
-        receipt_info = {
-            "received_by": user_id,
-            "received_at": datetime.now().isoformat(),
-            "destination_voucher_id": receipt_voucher_id
-        }
-
+        receipt_info = {"received_by": user_id, "received_at": datetime.now().isoformat(), "destination_voucher_id": receipt_voucher_id}
         transaction.update(transfer_ref, {"status": "COMPLETED", "receipt_info": receipt_info})
         return receipt_voucher_id
 
-    def get_transfers_by_status(self, branch_id: str, status: list):
-        """
-        Lấy danh sách các phiếu luân chuyển liên quan đến một chi nhánh (nguồn hoặc đích) theo trạng thái.
-        """
+    def receive_transfer_transactional(self, transfer_id: str, user_id: str):
+        transaction = self.db.transaction()
+        return self._receive_transfer_in_transaction(transaction, transfer_id, user_id)
+
+    def cancel_transfer(self, transfer_id: str, user_id: str, reason_notes: str = ''):
+        transfer_ref = self.transfers_col.document(transfer_id)
+        transfer_doc = transfer_ref.get()
+        if not transfer_doc.exists: raise FileNotFoundError(f"Không tìm thấy yêu cầu luân chuyển kho với ID: {transfer_id}")
+        transfer_data = transfer_doc.to_dict()
+        if transfer_data.get('status') != 'PENDING': raise ValueError(f"Chỉ có thể hủy yêu cầu ở trạng thái 'PENDING'.")
+
+        cancellation_info = {"cancelled_by": user_id, "cancelled_at": datetime.now().isoformat(), "reason": reason_notes}
+        transfer_ref.update({"status": "CANCELLED", "cancellation_info": cancellation_info})
+        return True
+
+    def get_outgoing_transfers(self, branch_id: str, status: list) -> list:
         if not branch_id or not status: return []
-            
-        source_query = self.transfers_col.where('source_branch_id', '==', branch_id).where('status', 'in', status)
-        dest_query = self.transfers_col.where('destination_branch_id', '==', branch_id).where('status', 'in', status)
-        
-        source_transfers = [doc.to_dict() for doc in source_query.stream()]
-        dest_transfers = [doc.to_dict() for doc in dest_query.stream()]
-        
-        all_transfers = {t['id']: t for t in source_transfers + dest_transfers}
-        
-        return sorted(list(all_transfers.values()), key=lambda x: x['created_at'], reverse=True)
+        query = self.transfers_col.where('source_branch_id', '==', branch_id).where('status', 'in', status)
+        transfers = [doc.to_dict() for doc in query.stream()]
+        return sorted(transfers, key=lambda x: x['created_at'], reverse=True)
+
+    def get_incoming_transfers(self, branch_id: str, status: list) -> list:
+        if not branch_id or not status: return []
+        query = self.transfers_col.where('destination_branch_id', '==', branch_id).where('status', 'in', status)
+        transfers = [doc.to_dict() for doc in query.stream()]
+        return sorted(transfers, key=lambda x: x['created_at'], reverse=True)
