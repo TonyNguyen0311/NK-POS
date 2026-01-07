@@ -17,8 +17,7 @@ class CategoryManager:
         """Helper to get a collection reference."""
         return self.db.collection(collection_name)
 
-    @st.cache_data(ttl=300, hash_funcs={_self_: hash_category_manager})
-    def get_all_category_items(_self, collection_name: str) -> list[dict]:
+    def get_all_category_items(self, collection_name: str) -> list[dict]:
         """
         Retrieves all items from a specified category collection.
         The result is cached to improve performance.
@@ -29,7 +28,7 @@ class CategoryManager:
         Returns:
             list[dict]: A list of dictionaries, where each dictionary represents an item.
         """
-        docs = _self._get_collection_ref(collection_name).stream()
+        docs = self._get_collection_ref(collection_name).stream()
         return [doc.to_dict() for doc in docs]
 
     def add_category_item(self, collection_name: str, item_data: dict, id_prefix: str) -> dict:
@@ -90,3 +89,6 @@ class CategoryManager:
         self.get_all_category_items.clear()
         
         return True
+
+# Apply the cache to the get_all_category_items method
+CategoryManager.get_all_category_items = st.cache_data(ttl=300, hash_funcs={CategoryManager: hash_category_manager})(CategoryManager.get_all_category_items)
