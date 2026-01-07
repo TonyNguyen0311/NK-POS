@@ -14,16 +14,13 @@ from managers.price_manager import PriceManager
 from managers.cost_manager import CostManager
 from managers.product_manager import ProductManager
 from managers.inventory_manager import InventoryManager
+from managers.stock_transfer_manager import StockTransferManager # Import the new manager
 from managers.customer_manager import CustomerManager
 from managers.promotion_manager import PromotionManager
-# POSManager depends on Inventory, Customer, Promotion, Price, Cost
 from managers.pos_manager import POSManager
-# ReportManager depends on Cost
 from managers.report_manager import ReportManager
-# AdminManager depends on Inventory
 from managers.admin_manager import AdminManager
 from managers.transaction_manager import TransactionManager
-
 
 # --- Import UI Pages ---
 from ui.login_page import render_login_page
@@ -46,8 +43,6 @@ from ui.transactions_page import render_transactions_page
 # --- UI Utils ---
 from ui._utils import inject_custom_css
 
-# --- App Hotfix (Force Reload) ---
-# This comment is added to force Streamlit Cloud to reload the app and all modules.
 
 st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
@@ -123,15 +118,18 @@ def init_managers():
     fb_client = connect_to_firebase()
     st.session_state.firebase_client = fb_client
 
-    st.session_state.branch_mgr = BranchManager(fb_client)
+    # Initialize AuthManager first as other components might depend on the user session
     st.session_state.settings_mgr = SettingsManager(fb_client)
+    st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
+
+    st.session_state.branch_mgr = BranchManager(fb_client)
     st.session_state.inventory_mgr = InventoryManager(fb_client)
+    st.session_state.stock_transfer_mgr = StockTransferManager(fb_client, st.session_state.inventory_mgr) # Initialize StockTransferManager
     st.session_state.customer_mgr = CustomerManager(fb_client)
     st.session_state.promotion_mgr = PromotionManager(fb_client)
     st.session_state.cost_mgr = CostManager(fb_client)
     st.session_state.price_mgr = PriceManager(fb_client)
     st.session_state.product_mgr = ProductManager(fb_client, price_mgr=st.session_state.price_mgr)
-    st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
     st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
     st.session_state.admin_mgr = AdminManager(fb_client, st.session_state.inventory_mgr)
     st.session_state.txn_mgr = TransactionManager(fb_client)
@@ -167,12 +165,19 @@ def display_sidebar():
 
     st.sidebar.divider()
     if st.sidebar.button("Đăng xuất", use_container_width=True, key="logout_button"):
-        st.session_state.auth_mgr.logout()
+        if 'auth_mgr' in st.session_state:
+            st.session_state.auth_mgr.logout()
         st.rerun()
 
 def main():
     inject_custom_css()
     init_managers()
+    
+    # Ensure auth_mgr is available before proceeding
+    if 'auth_mgr' not in st.session_state:
+        st.error("Lỗi nghiêm trọng: Không thể khởi tạo AuthManager. Vui lòng tải lại trang.")
+        st.stop()
+
     auth_mgr = st.session_state.auth_mgr
     branch_mgr = st.session_state.branch_mgr
     auth_mgr.check_cookie_and_re_auth()
@@ -188,12 +193,18 @@ def main():
         st.info("Vui lòng chọn một chức năng từ thanh điều hướng bên trái.")
         return
 
+    # Make sure all managers are available before rendering pages
+    required_managers = ['pos_mgr', 'report_mgr', 'branch_mgr', 'auth_mgr', 'inventory_mgr', 'product_mgr', 'stock_transfer_mgr']
+    if not all(mgr in st.session_state for mgr in required_managers):
+        st.warning("Đang khởi tạo, vui lòng đợi...")
+        st.rerun()
+
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
         "Báo cáo P&L": lambda: render_pnl_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Báo cáo & Phân tích": lambda: render_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Quản lý Kho": lambda: render_inventory_page(st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
-        "Luân chuyển Kho": lambda: show_stock_transfer_page(st.session_state.branch_mgr, st.session_state.inventory_mgr, st.session_state.product_mgr, st.session_state.auth_mgr),
+        "Luân chuyển Kho": lambda: show_stock_transfer_page(st.session_state.branch_mgr, st.session_state.stock_transfer_mgr, st.session_state.product_mgr, st.session_state.auth_mgr),
         "Ghi nhận Chi phí": lambda: render_cost_entry_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr, st.session_state.product_mgr),
         "Phân bổ Chi phí": lambda: render_cost_allocation_page(st.session_state.cost_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
         "Quản lý Khuyến mãi": lambda: render_promotions_page(st.session_state.promotion_mgr, st.session_state.product_mgr, st.session_state.branch_mgr),
