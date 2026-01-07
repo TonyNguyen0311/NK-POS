@@ -20,17 +20,16 @@ class ReportManager:
         self.inventory_collection = self.db.collection('inventory')
         self.categories_collection = self.db.collection('ProductCategories')
 
-    @st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})
-    def get_profit_loss_statement(_self, start_date: datetime, end_date: datetime, branch_ids: list = None):
+    def get_profit_loss_statement(self, start_date: datetime, end_date: datetime, branch_ids: list = None):
         """
         Tạo báo cáo Lãi và Lỗ từ một nguồn dữ liệu duy nhất: collection 'transactions'.
         """
         try:
-            query = _self.transactions_collection \
+            query = self.transactions_collection \
                          .where('created_at', '>=', start_date) \
                          .where('created_at', '<=', end_date)
             
-            if branch_ids:
+            if branch_ids and isinstance(branch_ids, list) and len(branch_ids) > 0:
                 query = query.where('branch_id', 'in', branch_ids)
             
             all_transactions = query.stream()
@@ -41,7 +40,7 @@ class ReportManager:
             order_count = 0
             op_expenses_by_group = {}
 
-            cost_groups_raw = _self.cost_mgr.get_all_category_items('cost_groups')
+            cost_groups_raw = self.cost_mgr.get_all_category_items('cost_groups')
             cost_groups = {g['id']: g['group_name'] for g in cost_groups_raw}
 
             for trans in all_transactions:
@@ -196,6 +195,8 @@ class ReportManager:
             logging.error(f"Lỗi khi lấy báo cáo doanh thu: {e}")
             return {"success": False, "message": str(e)}
 
+# Áp dụng decorator cho các phương thức sau khi class đã được định nghĩa
+ReportManager.get_profit_loss_statement = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_loss_statement)
 ReportManager.get_inventory_report = st.cache_data(ttl=300, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_inventory_report)
 ReportManager.get_profit_analysis_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_analysis_report)
 ReportManager.get_revenue_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_revenue_report)
