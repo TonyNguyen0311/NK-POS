@@ -30,6 +30,7 @@ class CostManager:
                 logging.error(f"Failed to initialize ImageHandler for costs: {e}")
         return self._image_handler
 
+    # ... existing methods ...
     def get_all_category_items(self, collection_name: str):
         try:
             docs = self.db.collection(collection_name).order_by("created_at").stream()
@@ -68,6 +69,39 @@ class CostManager:
         except Exception as e:
             logging.error(f"Error deleting item {doc_id} from {collection_name}: {e}")
             raise e
+            
+    # --- Cost Allocation Rules ---
+
+    def get_allocation_rules(self):
+        try:
+            rules = self.allocation_rules_col.stream()
+            return [{"id": doc.id, **doc.to_dict()} for doc in rules]
+        except Exception as e:
+            logging.error(f"Error getting cost allocation rules: {e}")
+            st.error(f"Lỗi khi tải quy tắc phân bổ: {e}")
+            return []
+
+    def create_allocation_rule(self, rule_data):
+        try:
+            doc_ref = self.allocation_rules_col.document()
+            rule_data['id'] = doc_ref.id
+            rule_data['created_at'] = firestore.SERVER_TIMESTAMP
+            doc_ref.set(rule_data)
+            self.get_allocation_rules.clear()  # Invalidate cache
+            return True, f"Đã tạo quy tắc '{rule_data['rule_name']}' thành công."
+        except Exception as e:
+            logging.error(f"Error creating allocation rule: {e}")
+            return False, f"Lỗi khi tạo quy tắc: {e}"
+
+    def delete_allocation_rule(self, rule_id):
+        try:
+            self.allocation_rules_col.document(rule_id).delete()
+            self.get_allocation_rules.clear()  # Invalidate cache
+            return True, "Đã xóa quy tắc thành công."
+        except Exception as e:
+            logging.error(f"Error deleting allocation rule {rule_id}: {e}")
+            return False, f"Lỗi khi xóa quy tắc: {e}"
+
 
     def create_cost_entry(self, **kwargs):
         attachment_file = kwargs.pop('attachment_file', None)
@@ -199,3 +233,4 @@ class CostManager:
 CostManager.get_all_category_items = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_all_category_items)
 CostManager.get_cost_entry = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_cost_entry)
 CostManager.query_cost_entries = st.cache_data(ttl=300, hash_funcs={CostManager: hash_cost_manager})(CostManager.query_cost_entries)
+CostManager.get_allocation_rules = st.cache_data(ttl=3600, hash_funcs={CostManager: hash_cost_manager})(CostManager.get_allocation_rules)
