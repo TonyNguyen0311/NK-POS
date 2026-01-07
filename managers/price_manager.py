@@ -23,7 +23,6 @@ class PriceManager:
             'price': price,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
-        self.get_all_prices.clear()
         self.get_active_prices_for_branch.clear()
         self.get_price.clear()
 
@@ -33,28 +32,22 @@ class PriceManager:
             'is_active': is_active,
             'updated_at': datetime.now().isoformat()
         }, merge=True)
-        self.get_all_prices.clear()
         self.get_active_prices_for_branch.clear()
 
-    def get_all_prices(self):
-        docs = self.prices_col.stream()
-        return [doc.to_dict() for doc in docs]
-
-    def get_active_prices_for_branch(self, branch_id: str):
-        """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh (đã sửa lỗi)."""
+    @st.cache_data(ttl=300)
+    def get_active_prices_for_branch(_self, branch_id: str):
+        """Lấy các sản phẩm đang được 'Kinh doanh' tại một chi nhánh bằng cách query trực tiếp."""
         try:
-            all_prices = self.get_all_prices()
-            active_products = [
-                p for p in all_prices 
-                if p.get('branch_id') == branch_id and p.get('is_active', False)
-            ]
-            return active_products
+            query = _self.prices_col.where('branch_id', '==', branch_id).where('is_active', '==', True)
+            docs = query.stream()
+            return [doc.to_dict() for doc in docs]
         except Exception as e:
-            print(f"Error getting active prices for branch {branch_id}: {e}")
+            st.error(f"Lỗi khi lấy giá sản phẩm cho chi nhánh {branch_id}: {e}")
             return []
 
-    def get_price(self, sku: str, branch_id: str):
-        doc = self.prices_col.document(f"{branch_id}_{sku}").get()
+    @st.cache_data(ttl=300)
+    def get_price(_self, sku: str, branch_id: str):
+        doc = _self.prices_col.document(f"{branch_id}_{sku}").get()
         return doc.to_dict() if doc.exists else None
 
     def schedule_price_change(self, sku: str, branch_id: str, new_price: float, apply_date: datetime, created_by: str):
@@ -78,16 +71,15 @@ class PriceManager:
         return True, schedule_id
 
     def get_pending_schedules_for_product(self, sku: str, branch_id: str):
-        """Lấy các lịch trình đang chờ áp dụng cho một sản phẩm cụ thể (đã sửa lỗi)."""
+        """Lấy các lịch trình đang chờ áp dụng cho một sản phẩm cụ thể bằng cách query trực tiếp."""
         try:
-            query = self.schedules_col.where('status', '==', 'PENDING')
-            all_pending = [doc.to_dict() for doc in query.stream()]
+            query = self.schedules_col \
+                .where('status', '==', 'PENDING') \
+                .where('sku', '==', sku) \
+                .where('branch_id', '==', branch_id)
             
-            product_schedules = [
-                s for s in all_pending 
-                if s.get('sku') == sku and s.get('branch_id') == branch_id
-            ]
-            
+            docs = query.stream()
+            product_schedules = [doc.to_dict() for doc in docs]
             product_schedules.sort(key=lambda s: s.get('start_date', datetime.max))
             
             return product_schedules
@@ -123,16 +115,3 @@ class PriceManager:
             print(f"Applied {applied_count} price schedules.")
 
         return applied_count
-
-# Apply decorators after the class is defined
-PriceManager.get_all_prices = st.cache_data(
-    ttl=300, hash_funcs={PriceManager: hash_price_manager}
-)(PriceManager.get_all_prices)
-
-PriceManager.get_active_prices_for_branch = st.cache_data(
-    ttl=300, hash_funcs={PriceManager: hash_price_manager}
-)(PriceManager.get_active_prices_for_branch)
-
-PriceManager.get_price = st.cache_data(
-    ttl=300, hash_funcs={PriceManager: hash_price_manager}
-)(PriceManager.get_price)
