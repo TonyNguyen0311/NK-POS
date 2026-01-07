@@ -1,77 +1,134 @@
 
 import streamlit as st
 import logging
+from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 class AdminManager:
-    def __init__(self, firebase_client):
+    def __init__(self, firebase_client, inventory_mgr):
         self.db = firebase_client.db
+        # SỬA LỖI: Thêm inventory_mgr để có thể hoàn trả tồn kho
+        self.inventory_mgr = inventory_mgr
+
+    # --------------------------------------------------------------------------
+    # HÀM DỌN DẸP DỮ LIỆU
+    # --------------------------------------------------------------------------
 
     def _delete_collection_in_batches(self, coll_ref, batch_size):
         """
-        Deletes all documents in a collection using pagination (cursors) for robustness.
-        This method orders documents by their ID and uses `start_after` to paginate,
-        ensuring all documents are processed even during mutations.
+        Xóa tất cả các tài liệu trong một collection bằng cách sử dụng phân trang (cursors).
         """
         deleted_count = 0
-        last_doc = None # Acts as the cursor
+        last_doc = None
 
         while True:
-            # Base query ordered by document ID
             query = coll_ref.order_by('__name__').limit(batch_size)
-
-            # If we have a cursor from the last batch, start after it
             if last_doc:
                 query = query.start_after(last_doc)
 
-            # Get the next batch of documents
             docs = list(query.stream())
-
-            # If no documents are found, we are done
             if not docs:
                 break
 
-            # Create a write batch and add all delete operations
             batch = self.db.batch()
             for doc in docs:
                 batch.delete(doc.reference)
-            
-            # Commit the batch
             batch.commit()
 
-            # Update the count and set the cursor for the next iteration
             deleted_count += len(docs)
-            last_doc = docs[-1] # The last doc of the current batch is the cursor for the next one
-            logging.info(f"Deleted a batch of {len(docs)} documents from {coll_ref.id}.")
+            last_doc = docs[-1]
+            logging.info(f"Đã xóa một lô {len(docs)} tài liệu từ {coll_ref.id}.")
         
         return deleted_count
 
     def clear_inventory_data(self):
         """
-        DANGER: Deletes all documents from 'inventory', 'inventory_vouchers', 
-        and 'inventory_transactions'. This is irreversible.
-        Returns a dictionary with counts of deleted documents.
+        NGUY HIỂM: Xóa tất cả dữ liệu từ 'inventory', 'inventory_vouchers', 
+        và 'inventory_transactions'. Không thể hoàn tác.
         """
         collections_to_clear = [
             'inventory',
             'inventory_vouchers',
             'inventory_transactions'
         ]
-        
         deleted_counts = {}
-        
         for coll_name in collections_to_clear:
             try:
                 coll_ref = self.db.collection(coll_name)
-                logging.info(f"Starting to clear collection: {coll_name}")
-                count = self._delete_collection_in_batches(coll_ref, 200) # Using a batch size of 200
+                count = self._delete_collection_in_batches(coll_ref, 200)
                 deleted_counts[coll_name] = count
-                logging.info(f"Successfully cleared {coll_name}, deleted {count} documents.")
             except Exception as e:
-                logging.error(f"Error clearing collection {coll_name}: {e}")
-                deleted_counts[coll_name] = f"Error: {e}"
+                deleted_counts[coll_name] = f"Lỗi: {e}"
 
-        # Clear Streamlit's data caches after deletion to reflect changes
         st.cache_data.clear()
-        
         return deleted_counts
 
+    # --------------------------------------------------------------------------
+    # HÀM QUẢN LÝ ĐƠN HÀNG (MỚI)
+    # --------------------------------------------------------------------------
+
+    def get_all_orders(self):
+        """Lấy tất cả các đơn hàng, sắp xếp theo ngày tạo gần nhất."""
+        try:
+            orders_ref = self.db.collection('orders')
+            query = orders_ref.order_by("created_at", direction=firestore.Query.DESCENDING)
+            docs = query.stream()
+            orders = [doc.to_dict() for doc in docs]
+            return orders
+        except Exception as e:
+            # Xử lý trường hợp collection chưa tồn tại hoặc lỗi khác
+            st.error(f"Lỗi khi lấy danh sách đơn hàng: {e}")
+            return []
+
+    def delete_order_and_revert_stock(self, order_id: str, current_user_id: str):
+        """
+        Xóa một đơn hàng và hoàn trả lại tồn kho của các sản phẩm trong đơn hàng đó.
+        Hành động này được thực hiện trong một transaction để đảm bảo an toàn.
+        """
+        order_ref = self.db.collection('orders').document(order_id)
+        transaction_ref = self.db.collection('transactions').document(order_id)
+
+        try:
+            @firestore.transactional
+            def _process_deletion(transaction):
+                order_doc = transaction.get(order_ref)
+                if not order_doc.exists:
+                    raise Exception("Đơn hàng không tồn tại.")
+                
+                order_data = order_doc.to_dict()
+                branch_id = order_data.get('branch_id')
+                items = order_data.get('items', [])
+
+                if not branch_id or not items:
+                    # Nếu không có thông tin chi nhánh hoặc sản phẩm, chỉ cần xóa đơn hàng
+                    transaction.delete(order_ref)
+                    if transaction.get(transaction_ref).exists:
+                         transaction.delete(transaction_ref)
+                    return
+
+                # Hoàn trả tồn kho cho từng sản phẩm
+                for item in items:
+                    sku = item.get('sku')
+                    quantity = item.get('quantity')
+                    if sku and quantity > 0:
+                        self.inventory_mgr.update_inventory(
+                            transaction=transaction,
+                            sku=sku,
+                            branch_id=branch_id,
+                            delta=quantity,  # Cộng trả lại số lượng
+                            order_id=f"REVERT-{order_id}",
+                            user_id=current_user_id
+                        )
+
+                # Xóa đơn hàng và giao dịch (nếu có)
+                transaction.delete(order_ref)
+                if transaction.get(transaction_ref).exists:
+                    transaction.delete(transaction_ref)
+
+            _process_deletion(self.db.transaction())
+            # Xóa cache sau khi thay đổi dữ liệu
+            st.cache_data.clear()
+            return True, f"Đã xóa thành công đơn hàng {order_id} và hoàn trả tồn kho."
+        except Exception as e:
+            logging.error(f"Lỗi khi xóa đơn hàng {order_id}: {e}")
+            return False, f"Lỗi: {e}"

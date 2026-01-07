@@ -19,7 +19,7 @@ from managers.promotion_manager import PromotionManager
 from managers.cost_manager import CostManager
 from managers.price_manager import PriceManager
 from managers.admin_manager import AdminManager
-from managers.transaction_manager import TransactionManager # Added
+from managers.transaction_manager import TransactionManager
 
 # --- Import UI Pages ---
 from ui.login_page import render_login_page
@@ -37,33 +37,33 @@ from ui.cost_allocation_page import render_cost_allocation_page
 from ui.pnl_report_page import render_pnl_report_page
 from ui.categories_page import render_categories_page
 from ui.admin_page import render_admin_page
-from ui.transactions_page import render_transactions_page # Added
+from ui.transactions_page import render_transactions_page
 
 # --- UI Utils ---
 from ui._utils import inject_custom_css
 
 st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
-# --- MENU PERMISSIONS & STRUCTURE (Updated)---
+# --- MENU PERMISSIONS & STRUCTURE ---
 MENU_PERMISSIONS = {
     "admin": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Sản phẩm",
         "Danh mục", "Phân bổ Chi phí", "Quản lý Khuyến mãi",
         "Quản lý Người dùng", "Quản trị Hệ thống", "Dọn dẹp Dữ liệu",
-        "Lịch sử Giao dịch", # Added
+        "Lịch sử Giao dịch",
     ],
     "manager": [
         "Báo cáo P&L", "Báo cáo & Phân tích", "Bán hàng (POS)", "Sản phẩm Kinh doanh",
         "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí", "Quản lý Khuyến mãi",
-        "Quản lý Người dùng", "Lịch sử Giao dịch", # Added
+        "Quản lý Người dùng", "Lịch sử Giao dịch",
     ],
     "supervisor": [
         "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Ghi nhận Chi phí",
         "Quản lý Người dùng",
     ],
     "staff": [
-        "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Lịch sử Giao dịch", # Added
+        "Bán hàng (POS)", "Quản lý Kho", "Luân chuyển Kho", "Lịch sử Giao dịch",
     ]
 }
 MENU_STRUCTURE = {
@@ -101,28 +101,22 @@ def get_corrected_creds(secrets_key):
 
 @st.cache_resource
 def connect_to_firebase():
-    """Connects to Firebase and returns the client object, cached across all user sessions."""
     try:
         firebase_creds_info = get_corrected_creds("firebase_credentials")
         pyrebase_config = st.secrets["pyrebase_config"].to_dict()
         return FirebaseClient(firebase_creds_info, pyrebase_config)
     except Exception as e:
-        # Stop the app if Firebase connection fails
         st.error(f"Lỗi nghiêm trọng khi khởi tạo Firebase: {e}. Vui lòng liên hệ quản trị viên.")
         st.stop()
 
 
 def init_managers():
-    """Initializes all managers for the current user session."""
     if 'managers_initialized' in st.session_state:
         return
 
-    # Get the globally cached Firebase client
     fb_client = connect_to_firebase()
-    
     st.session_state.firebase_client = fb_client
 
-    # Instantiate all managers - this part still runs once per session, which is correct
     st.session_state.branch_mgr = BranchManager(fb_client)
     st.session_state.settings_mgr = SettingsManager(fb_client)
     st.session_state.inventory_mgr = InventoryManager(fb_client)
@@ -133,8 +127,9 @@ def init_managers():
     st.session_state.product_mgr = ProductManager(fb_client, price_mgr=st.session_state.price_mgr)
     st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
     st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
-    st.session_state.admin_mgr = AdminManager(fb_client)
-    st.session_state.txn_mgr = TransactionManager(fb_client) # Added
+    # SỬA LỖI: Truyền inventory_mgr vào AdminManager
+    st.session_state.admin_mgr = AdminManager(fb_client, st.session_state.inventory_mgr)
+    st.session_state.txn_mgr = TransactionManager(fb_client)
     st.session_state.pos_mgr = POSManager(
         firebase_client=fb_client, inventory_mgr=st.session_state.inventory_mgr,
         customer_mgr=st.session_state.customer_mgr, promotion_mgr=st.session_state.promotion_mgr,
@@ -172,12 +167,9 @@ def display_sidebar():
 
 def main():
     inject_custom_css()
-
     init_managers()
-
     auth_mgr = st.session_state.auth_mgr
     branch_mgr = st.session_state.branch_mgr
-    
     auth_mgr.check_cookie_and_re_auth()
 
     if 'user' not in st.session_state or st.session_state.user is None:
@@ -191,7 +183,6 @@ def main():
         st.info("Vui lòng chọn một chức năng từ thanh điều hướng bên trái.")
         return
 
-    # Dictionary mapping page names to their render functions (Updated)
     page_renderers = {
         "Bán hàng (POS)": lambda: render_pos_page(st.session_state.pos_mgr),
         "Báo cáo P&L": lambda: render_pnl_report_page(st.session_state.report_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
@@ -207,7 +198,7 @@ def main():
         "Sản phẩm Kinh doanh": lambda: render_business_products_page(st.session_state.auth_mgr, st.session_state.branch_mgr, st.session_state.product_mgr, st.session_state.price_mgr),
         "Danh mục": lambda: render_categories_page(st.session_state.product_mgr, st.session_state.cost_mgr),
         "Dọn dẹp Dữ liệu": lambda: render_admin_page(st.session_state.admin_mgr, st.session_state.auth_mgr),
-        "Lịch sử Giao dịch": lambda: render_transactions_page(st.session_state.txn_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr), # Added
+        "Lịch sử Giao dịch": lambda: render_transactions_page(st.session_state.txn_mgr, st.session_state.branch_mgr, st.session_state.auth_mgr),
     }
 
     renderer = page_renderers.get(page)
