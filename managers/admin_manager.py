@@ -67,22 +67,31 @@ class AdminManager:
         """
         Xóa một đơn hàng, các giao dịch tài chính liên quan và hoàn trả tồn kho.
         Hành động được thực hiện trong một transaction để đảm bảo tính toàn vẹn dữ liệu.
+        Tuân thủ quy tắc: ĐỌC trước, GHI sau.
         """
         order_ref = self.db.collection('orders').document(order_id)
+        txns_query = self.db.collection('transactions').where(filter=FieldFilter("order_id", "==", order_id))
 
         try:
             @firestore.transactional
             def _process_deletion(transaction):
+                # --- GIAI ĐOẠN ĐỌC (READ PHASE) ---
                 # 1. Đọc tài liệu đơn hàng
                 order_doc = transaction.get(order_ref)
                 if not order_doc.exists:
-                    raise Exception("Đơn hàng không tồn tại hoặc đã bị xóa.")
-                
+                    raise Exception(f"Không tìm thấy đơn hàng {order_id}. Có thể nó đã được xóa rồi.")
+
+                # 2. Đọc các tài liệu giao dịch tài chính liên quan.
+                related_txn_docs = list(txns_query.stream(transaction=transaction))
+
+                # --- GIAI ĐOẠN GHI (WRITE PHASE) ---
+                # Từ đây trở đi, không còn thao tác ĐỌC nào nữa.
+
                 order_data = order_doc.to_dict()
                 branch_id = order_data.get('branch_id')
                 items = order_data.get('items', [])
 
-                # 2. Hoàn trả tồn kho (nếu có)
+                # 3. Hoàn trả tồn kho (thao tác GHI)
                 if branch_id and items:
                     for item in items:
                         sku = item.get('sku')
@@ -97,13 +106,11 @@ class AdminManager:
                                 user_id=current_user_id
                             )
 
-                # 3. Tìm và xóa các tài liệu giao dịch tài chính (transactions) liên quan
-                txns_query = self.db.collection('transactions').where(filter=FieldFilter("order_id", "==", order_id))
-                related_txn_docs = txns_query.stream(transaction=transaction)
+                # 4. Xóa các tài liệu giao dịch tài chính đã tìm thấy (thao tác GHI)
                 for doc in related_txn_docs:
                     transaction.delete(doc.reference)
 
-                # 4. Xóa chính đơn hàng đó
+                # 5. Xóa chính đơn hàng đó (thao tác GHI)
                 transaction.delete(order_ref)
 
             _process_deletion(self.db.transaction())
@@ -111,4 +118,4 @@ class AdminManager:
 
         except Exception as e:
             logging.error(f"Lỗi khi xóa đơn hàng {order_id}: {e}")
-            return False, f"Lỗi: {e}"
+            return False, f"Lỗi trong quá trình xóa: {e}"
