@@ -5,38 +5,28 @@ import streamlit as st
 from google.cloud import firestore
 from datetime import datetime, time
 
-
 @firestore.transactional
 def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref, voucher_data, items):
     """
-    Transactional function to create a voucher and all its related inventory transactions.
-    This ensures all inventory operations are performed atomically with the voucher creation.
-    All reads are performed before all writes to comply with Firestore transaction constraints.
+    Hàm giao dịch cốt lõi để tạo chứng từ và các bản ghi giao dịch tồn kho liên quan.
+    Đảm bảo tất cả các hoạt động được thực hiện một cách nguyên tử.
     """
     inventory_col = db.collection('inventory')
     transactions_col = db.collection('inventory_transactions')
 
-    # --- STAGE 1: READS ---
     inventory_states = {}
     for item in items:
         sku = item['sku']
         branch_id = voucher_data['branch_id']
         inv_doc_ref = inventory_col.document(f"{sku.upper()}_{branch_id}")
         inv_snapshot = inv_doc_ref.get(transaction=transaction)
-        inventory_states[sku] = {
-            "ref": inv_doc_ref,
-            "snapshot": inv_snapshot
-        }
+        inventory_states[sku] = {"ref": inv_doc_ref, "snapshot": inv_snapshot}
 
-    # --- STAGE 2: CALCULATIONS & WRITES ---
     processed_transaction_ids = []
-    all_write_operations = []
-
     for item in items:
         sku = item['sku']
         delta = item['quantity']
         purchase_price = item.get('purchase_price')
-
         state = inventory_states[sku]
         inv_doc_ref = state["ref"]
         inv_snapshot = state["snapshot"]
@@ -52,41 +42,32 @@ def _create_voucher_and_transactions_transactional(transaction, db, voucher_ref,
         new_avg_cost = current_avg_cost
 
         if delta > 0 and purchase_price is not None and purchase_price >= 0:
-            current_total_value = current_quantity * current_avg_cost
+            total_value = current_quantity * current_avg_cost
             adjustment_value = delta * purchase_price
-            new_avg_cost = (current_total_value + adjustment_value) / new_quantity if new_quantity > 0 else 0
+            new_avg_cost = (total_value + adjustment_value) / new_quantity if new_quantity > 0 else 0
         
         if new_quantity < 0:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku}. Giao dịch thất bại.")
 
-        inventory_update_data = {
-            'sku': sku,
-            'branch_id': voucher_data['branch_id'],
-            'stock_quantity': new_quantity,
-            'average_cost': new_avg_cost,
+        transaction.set(inv_doc_ref, {
+            'sku': sku, 'branch_id': voucher_data['branch_id'],
+            'stock_quantity': new_quantity, 'average_cost': new_avg_cost,
             'last_updated': voucher_data['created_at'],
-        }
-        all_write_operations.append(('set', inv_doc_ref, inventory_update_data, True))
+        }, merge=True)
 
         trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
         trans_ref = transactions_col.document(trans_id)
-        transaction_log_data = {
+        transaction.set(trans_ref, {
             'id': trans_id, 'voucher_id': voucher_ref.id, 'sku': sku,
             'branch_id': voucher_data['branch_id'], 'user_id': voucher_data['created_by'],
             'reason': voucher_data['type'], 'delta': delta,
             'quantity_before': current_quantity, 'quantity_after': new_quantity,
             'cost_at_transaction': new_avg_cost, 'purchase_price': purchase_price,
             'notes': voucher_data.get('notes', ''), 'timestamp': voucher_data['created_at'],
-        }
-        all_write_operations.append(('set', trans_ref, transaction_log_data, False))
+        })
         processed_transaction_ids.append(trans_id)
 
     transaction.set(voucher_ref, {**voucher_data, 'transaction_ids': processed_transaction_ids})
-    
-    for op, ref, data, merge in all_write_operations:
-        if op == 'set':
-            transaction.set(ref, data, merge=merge)
-
 
 class InventoryManager:
     def __init__(self, firebase_client):
@@ -95,31 +76,116 @@ class InventoryManager:
         self.inventory_col = self.db.collection('inventory')
         self.transactions_col = self.db.collection('inventory_transactions')
 
+    def execute_voucher_creation_in_transaction(self, transaction, voucher_type: str, branch_id: str, user_id: str, items: list, date: datetime, notes: str = '', **kwargs):
+        """
+        Thực thi việc tạo chứng từ và cập nhật tồn kho BÊN TRONG một giao dịch đã tồn tại.
+        Đây là phương thức cốt lõi cho phép các manager khác tích hợp.
+        """
+        if not items:
+            raise ValueError("Chứng từ phải có ít nhất một sản phẩm.")
+
+        prefix_map = {
+            "GOODS_RECEIPT": "VGR",
+            "GOODS_ISSUE": "VGI",
+            "ADJUSTMENT": "VADJ",
+            "REVERSAL_GOODS_RECEIPT": "VCAN",
+            "REVERSAL_GOODS_ISSUE": "VCAN",
+        }
+        prefix = prefix_map.get(voucher_type, "VOU")
+        voucher_id = f"{prefix}-{uuid.uuid4().hex[:10].upper()}"
+        
+        created_at = datetime.combine(date, datetime.now().time()).isoformat()
+
+        voucher_data = {
+            'id': voucher_id,
+            'branch_id': branch_id,
+            'created_by': user_id,
+            'type': voucher_type,
+            'status': 'COMPLETED',
+            'created_at': created_at,
+            'notes': notes,
+            'items': items,
+            **kwargs
+        }
+
+        voucher_ref = self.vouchers_col.document(voucher_id)
+        _create_voucher_and_transactions_transactional(transaction, self.db, voucher_ref, voucher_data, items)
+        return voucher_id
+
+    def create_goods_receipt(self, branch_id, user_id, items, supplier, notes, receipt_date):
+        transaction = self.db.transaction()
+        voucher_id = self.execute_voucher_creation_in_transaction(
+            transaction, "GOODS_RECEIPT", branch_id, user_id, items, receipt_date, notes, supplier=supplier
+        )
+        self._clear_caches()
+        return voucher_id
+
+    def create_goods_issue(self, branch_id, user_id, items, notes, issue_date):
+        issue_items = [{'sku': item['sku'], 'quantity': -abs(item.get('quantity', 0))} for item in items if item.get('quantity', 0) > 0]
+        if not issue_items:
+            raise ValueError("Không có sản phẩm hợp lệ để xuất kho.")
+        
+        transaction = self.db.transaction()
+        voucher_id = self.execute_voucher_creation_in_transaction(
+            transaction, "GOODS_ISSUE", branch_id, user_id, issue_items, issue_date, notes
+        )
+        self._clear_caches()
+        return voucher_id
+
+    def create_adjustment(self, branch_id, user_id, items, reason, notes, adjustment_date):
+        if not items: raise ValueError("Phiếu điều chỉnh phải có ít nhất một sản phẩm.")
+        # Logic tính delta vẫn cần đọc dữ liệu trước, điều này không an toàn khi đứng độc lập
+        # TODO: Cải thiện logic đọc tồn kho để nó xảy ra bên trong giao dịch
+        items_with_delta = []
+        for item in items:
+            current_item_state = self.get_inventory_item(item['sku'], branch_id)
+            current_quantity = current_item_state.get('stock_quantity', 0) if current_item_state else 0
+            delta = item['actual_quantity'] - current_quantity
+            if delta != 0:
+                items_with_delta.append({
+                    'sku': item['sku'], 'quantity': delta, 'actual_quantity': item['actual_quantity'],
+                    'quantity_before': current_quantity
+                })
+        if not items_with_delta: return None
+        
+        transaction = self.db.transaction()
+        voucher_id = self.execute_voucher_creation_in_transaction(
+            transaction, f'ADJUSTMENT_{reason.upper()}', branch_id, user_id, items_with_delta, adjustment_date, notes, reason=reason
+        )
+        self._clear_caches()
+        return voucher_id
+
+    def cancel_voucher(self, voucher_id: str, user_id: str):
+        original_voucher_ref = self.vouchers_col.document(voucher_id)
+        original_voucher_doc = original_voucher_ref.get()
+        if not original_voucher_doc.exists: raise FileNotFoundError("Không tìm thấy chứng từ gốc.")
+        
+        voucher_dict = original_voucher_doc.to_dict()
+        if voucher_dict.get('status') == 'CANCELLED': raise ValueError("Chứng từ này đã bị huỷ trước đó.")
+
+        reversal_items = [{'sku': item['sku'], 'quantity': -item['quantity'], 'purchase_price': item.get('purchase_price')} for item in voucher_dict['items']]
+        
+        cancellation_notes = f"Huỷ chứng từ {voucher_id}."
+        reversal_type = f"REVERSAL_{voucher_dict['type']}"
+        
+        @firestore.transactional
+        def _cancel_transactionally(transaction):
+            # Tạo chứng từ đảo ngược
+            self.execute_voucher_creation_in_transaction(
+                transaction, reversal_type, voucher_dict['branch_id'], user_id, reversal_items, 
+                datetime.now(), cancellation_notes, reverses_voucher_id=voucher_id
+            )
+            # Cập nhật trạng thái chứng từ gốc
+            transaction.update(original_voucher_ref, {'status': 'CANCELLED', 'cancelled_by': user_id, 'cancelled_at': datetime.now().isoformat()})
+
+        _cancel_transactionally(self.db.transaction())
+        self._clear_caches()
+
     def update_inventory(self, transaction, sku: str, branch_id: str, delta: int, order_id: str, user_id: str) -> float:
-        """
-        Updates inventory for a given SKU within an existing Firestore transaction
-        and returns the average cost of the item at the time of the transaction.
-
-        IMPORTANT: This function does NOT clear caches. Cache clearing must be handled
-        by the calling function (e.g., POSManager) after the transaction is committed.
-
-        Args:
-            transaction: The Firestore transaction object.
-            sku (str): The stock keeping unit of the product.
-            branch_id (str): The ID of the branch.
-            delta (int): The change in quantity (negative for sales).
-            order_id (str): The ID of the order causing this change.
-            user_id (str): The ID of the user performing the action.
-
-        Returns:
-            float: The average cost of the SKU at the moment of the transaction.
-        """
         if delta == 0:
             inv_doc_ref = self.inventory_col.document(f"{sku.upper()}_{branch_id}")
             inv_snapshot = inv_doc_ref.get(transaction=transaction)
-            if inv_snapshot.exists:
-                return inv_snapshot.to_dict().get('average_cost', 0)
-            return 0
+            return inv_snapshot.to_dict().get('average_cost', 0) if inv_snapshot.exists else 0
 
         inv_doc_ref = self.inventory_col.document(f"{sku.upper()}_{branch_id}")
         inv_snapshot = inv_doc_ref.get(transaction=transaction)
@@ -136,118 +202,22 @@ class InventoryManager:
             raise ValueError(f"Tồn kho không đủ cho sản phẩm {sku} tại chi nhánh {branch_id}. Giao dịch thất bại.")
 
         transaction_timestamp = datetime.now().isoformat()
-
-        # Use set with merge=True to be safe, in case the inventory doc doesn't exist yet
-        transaction.set(inv_doc_ref, {
-            'stock_quantity': new_quantity,
-            'last_updated': transaction_timestamp
-        }, merge=True)
+        transaction.set(inv_doc_ref, {'stock_quantity': new_quantity, 'last_updated': transaction_timestamp}, merge=True)
 
         trans_id = f"TRANS-{uuid.uuid4().hex[:10].upper()}"
         trans_ref = self.transactions_col.document(trans_id)
         transaction.set(trans_ref, {
-            'id': trans_id,
-            'voucher_id': order_id,
-            'sku': sku,
-            'branch_id': branch_id,
-            'user_id': user_id,
-            'reason': 'SALE',
-            'delta': delta,
-            'quantity_before': current_quantity,
-            'quantity_after': new_quantity,
-            'cost_at_transaction': average_cost,
-            'purchase_price': None,
-            'notes': f'Bán hàng theo đơn hàng {order_id}',
+            'id': trans_id, 'voucher_id': order_id, 'sku': sku, 'branch_id': branch_id, 'user_id': user_id,
+            'reason': 'SALE', 'delta': delta, 'quantity_before': current_quantity, 'quantity_after': new_quantity,
+            'cost_at_transaction': average_cost, 'purchase_price': None, 'notes': f'Bán hàng theo đơn hàng {order_id}',
             'timestamp': transaction_timestamp,
         })
-        
         return average_cost
 
     def _clear_caches(self):
-        """Clears specific caches related to inventory and vouchers."""
         self.get_inventory_by_branch.clear()
         self.get_inventory_item.clear()
         self.get_vouchers_by_branch.clear()
-
-    def create_goods_receipt(self, branch_id, user_id, items, supplier, notes, receipt_date):
-        if not items:
-            raise ValueError("Phiếu nhập phải có ít nhất một sản phẩm.")
-        
-        voucher_id = f"VGR-{uuid.uuid4().hex[:10].upper()}"
-        voucher_ref = self.vouchers_col.document(voucher_id)
-        created_at = datetime.combine(receipt_date, datetime.now().time()).isoformat()
-
-        voucher_data = {
-            'id': voucher_id, 'branch_id': branch_id, 'created_by': user_id, 'type': 'GOODS_RECEIPT',
-            'status': 'COMPLETED', 'created_at': created_at, 'notes': notes, 'supplier': supplier,
-            'items': items
-        }
-
-        transaction = self.db.transaction()
-        _create_voucher_and_transactions_transactional(transaction, self.db, voucher_ref, voucher_data, items)
-        self._clear_caches()
-        return voucher_id
-
-    def create_adjustment(self, branch_id, user_id, items, reason, notes, adjustment_date):
-        if not items: raise ValueError("Phiếu điều chỉnh phải có ít nhất một sản phẩm.")
-
-        voucher_id = f"VADJ-{uuid.uuid4().hex[:10].upper()}"
-        voucher_ref = self.vouchers_col.document(voucher_id)
-        created_at = datetime.combine(adjustment_date, datetime.now().time()).isoformat()
-
-        items_with_delta = []
-        for item in items:
-            # Use the cached method to get current state
-            current_item_state = self.get_inventory_item(item['sku'], branch_id)
-            current_quantity = current_item_state.get('stock_quantity', 0) if current_item_state else 0
-            delta = item['actual_quantity'] - current_quantity
-            if delta != 0:
-                items_with_delta.append({
-                    'sku': item['sku'], 'quantity': delta, 'actual_quantity': item['actual_quantity'],
-                    'quantity_before': current_quantity
-                })
-        
-        if not items_with_delta: return None
-
-        voucher_data = {
-            'id': voucher_id, 'branch_id': branch_id, 'created_by': user_id, 'type': f'ADJUSTMENT_{reason.upper()}',
-            'status': 'COMPLETED', 'created_at': created_at, 'notes': notes, 'reason': reason,
-            'items': items_with_delta 
-        }
-
-        transaction = self.db.transaction()
-        # TODO: This should read the inventory inside the transaction, not from cache.
-        _create_voucher_and_transactions_transactional(transaction, self.db, voucher_ref, voucher_data, items_with_delta)
-        self._clear_caches()
-        return voucher_id
-
-    def cancel_voucher(self, voucher_id: str, user_id: str):
-        original_voucher_ref = self.vouchers_col.document(voucher_id)
-        original_voucher = original_voucher_ref.get()
-        if not original_voucher.exists: raise FileNotFoundError("Không tìm thấy chứng từ gốc.")
-        voucher_dict = original_voucher.to_dict()
-        if voucher_dict.get('status') == 'CANCELLED': raise ValueError("Chứng từ này đã bị huỷ trước đó.")
-
-        reversal_items = [{'sku': item['sku'], 'quantity': -item['quantity'], 'purchase_price': item.get('purchase_price')} for item in voucher_dict['items']]
-        
-        cancellation_voucher_id = f"VCAN-{uuid.uuid4().hex[:10].upper()}"
-        cancellation_voucher_ref = self.vouchers_col.document(cancellation_voucher_id)
-        created_at = datetime.now().isoformat()
-        
-        cancellation_voucher_data = {
-            'id': cancellation_voucher_id, 'branch_id': voucher_dict['branch_id'], 'created_by': user_id,
-            'type': f"REVERSAL_{voucher_dict['type']}", 'status': 'COMPLETED', 'created_at': created_at,
-            'notes': f"Huỷ chứng từ {voucher_id}.", 'items': reversal_items, 'reverses_voucher_id': voucher_id
-        }
-        
-        transaction = self.db.transaction()
-        
-        _create_voucher_and_transactions_transactional(transaction, self.db, cancellation_voucher_ref, cancellation_voucher_data, reversal_items)
-
-        transaction.update(original_voucher_ref, {'status': 'CANCELLED', 'cancelled_by': user_id, 'cancelled_at': created_at})
-        
-        self._clear_caches()
-        return cancellation_voucher_id
 
     @st.cache_data(ttl=60)
     def get_inventory_item(_self, sku: str, branch_id: str):

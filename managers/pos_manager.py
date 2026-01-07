@@ -5,16 +5,16 @@ from datetime import datetime
 import uuid
 from .cost_manager import CostManager
 from .price_manager import PriceManager
+from .promotion_manager import PromotionManager # Ensure promotion manager is imported if not already
 
 class POSManager:
-    def __init__(self, firebase_client, inventory_mgr, customer_mgr, promotion_mgr, cost_mgr: CostManager, price_mgr: PriceManager):
+    def __init__(self, firebase_client, inventory_mgr, customer_mgr, promotion_mgr: PromotionManager, cost_mgr: CostManager, price_mgr: PriceManager):
         self.db = firebase_client.db
         self.inventory_mgr = inventory_mgr
         self.customer_mgr = customer_mgr
         self.promotion_mgr = promotion_mgr
         self.cost_mgr = cost_mgr
         self.price_mgr = price_mgr
-        # self.orders_collection = self.db.collection('orders') # REMOVED: No longer writing to 'orders'
 
     # --------------------------------------------------------------------------
     # HÀM QUẢN LÝ GIỎ HÀNG
@@ -25,7 +25,7 @@ class POSManager:
         current_price = product_data.get('selling_price', 0)
 
         if current_price <= 0:
-            st.error(f"Sản phẩm '{product_data['name']}' ({sku}) chưa được thiết lập giá bán tại chi nhánh này. Vui lòng kiểm tra lại.")
+            st.error(f"Sản phẩm '{product_data['name']}' ({sku}) chưa được thiết lập giá bán. Vui lòng kiểm tra lại.")
             return
 
         if sku in st.session_state.pos_cart:
@@ -58,64 +58,37 @@ class POSManager:
         st.session_state.pos_manual_discount_value = 0
 
     # --------------------------------------------------------------------------
-    # HÀM TÍNH TOÁN GIỎ HÀNG
+    # HÀM TÍNH TOÁN GIỎ HÀNG (REFACTORED)
     # --------------------------------------------------------------------------
 
     def calculate_cart_state(self, cart_items: dict, customer_id: str, manual_discount_input: dict):
-        # ... (implementation remains the same)
-        active_promo = self.promotion_mgr.get_active_price_program()
-        calculated_items = {}
-        subtotal = 0
-        total_auto_discount = 0
-        manual_discount_exceeded = False
-        total_items = 0 
-
-        for sku, item in cart_items.items():
-            total_items += item['quantity'] 
-            original_line_total = item['original_price'] * item['quantity']
-            subtotal += original_line_total
-            
-            auto_discount_value = 0
-            if self.promotion_mgr.is_item_eligible_for_program(item, active_promo):
-                auto_discount_rule = active_promo.get('rules', {}).get('auto_discount', {})
-                if auto_discount_rule.get('type') == 'PERCENT':
-                    auto_discount_value = original_line_total * (auto_discount_rule.get('value', 0) / 100)
-            
-            total_auto_discount += auto_discount_value
-
-            calculated_items[sku] = {
-                **item,
-                'original_line_total': original_line_total,
-                'auto_discount_applied': auto_discount_value,
-                'line_total_after_auto_discount': original_line_total - auto_discount_value
+        """
+        Tính toán trạng thái của giỏ hàng bằng cách gọi đến các manager chuyên trách.
+        Hàm này không còn chứa logic tính toán khuyến mãi phức tạp.
+        """
+        if not cart_items:
+            return {
+                "items": {}, "total_items": 0, "active_promotion": None,
+                "subtotal": 0, "total_auto_discount": 0, "total_manual_discount": 0,
+                "manual_discount_input": manual_discount_input, "manual_discount_limit": 0,
+                "manual_discount_exceeded": False, "grand_total": 0
             }
-        
-        total_manual_discount = 0
-        limit_value = 0
-        if active_promo and self.promotion_mgr.is_manual_discount_allowed(active_promo):
-            limit_rule = active_promo.get('rules', {}).get('manual_extra_limit', {})
-            limit_value = limit_rule.get('value', 0)
-            user_discount_value = manual_discount_input.get('value', 0)
-            
-            if user_discount_value > limit_value:
-                manual_discount_exceeded = True
-            else:
-                total_manual_discount = (subtotal - total_auto_discount) * (user_discount_value / 100)
-        
-        grand_total = subtotal - total_auto_discount - total_manual_discount
 
-        return {
-            "items": calculated_items,
-            "total_items": total_items, 
-            "active_promotion": active_promo,
-            "subtotal": subtotal,
-            "total_auto_discount": total_auto_discount,
-            "total_manual_discount": total_manual_discount,
-            "manual_discount_input": manual_discount_input,
-            "manual_discount_limit": limit_value,
-            "manual_discount_exceeded": manual_discount_exceeded,
-            "grand_total": grand_total
+        # --- Bước 1: Ủy quyền tất cả các tính toán khuyến mãi cho PromotionManager ---
+        promo_results = self.promotion_mgr.apply_promotions_to_cart(cart_items, manual_discount_input)
+
+        # --- Bước 2: Thực hiện các tính toán đơn giản, không liên quan đến khuyến mãi ---
+        total_items = sum(item['quantity'] for item in cart_items.values())
+
+        # --- Bước 3: Lắp ráp từ điển trạng thái cuối cùng ---
+        # Cấu trúc này phải khớp với những gì UI và hàm create_order mong đợi.
+        cart_state = {
+            **promo_results,  # Giải nén tất cả kết quả từ promotion manager
+            "total_items": total_items,
+            "manual_discount_input": manual_discount_input, # Giữ lại để hiển thị trên UI
         }
+
+        return cart_state
 
     # --------------------------------------------------------------------------
     # HÀM XỬ LÝ TẠO ĐƠN HÀNG (REFACTORED)
@@ -156,9 +129,9 @@ class POSManager:
 
                 # Stage 2: Calculate final prices and discounts
                 finalized_items = []
+                total_before_manual = cart_state['subtotal'] - cart_state['total_auto_discount']
                 for item in order_items_to_save:
                     line_total_before_manual = item['line_total_after_auto_discount']
-                    total_before_manual = cart_state['subtotal'] - cart_state['total_auto_discount']
                     proportional_manual_discount = (line_total_before_manual / total_before_manual) * cart_state['total_manual_discount'] if total_before_manual > 0 else 0
                     final_line_total = line_total_before_manual - proportional_manual_discount
                     final_price_per_unit = final_line_total / item['quantity'] if item['quantity'] > 0 else 0
@@ -182,7 +155,7 @@ class POSManager:
                     "total_auto_discount": cart_state['total_auto_discount'],
                     "total_manual_discount": cart_state['total_manual_discount'],
                     "discount_amount": cart_state['total_auto_discount'] + cart_state['total_manual_discount'],
-                    "promotion_id": cart_state['active_promotion']['id'] if cart_state['active_promotion'] else None,
+                    "promotion_id": cart_state['active_promotion']['id'] if cart_state.get('active_promotion') else None,
                 }
 
                 # Stage 4: Update other services and write the single transaction document
@@ -193,12 +166,14 @@ class POSManager:
                         points_delta=int(transaction_data['total_amount'] / 1000) 
                     )
                 
-                # Set the single, authoritative transaction document
                 transaction_ref = self.db.collection('transactions').document(order_id)
                 transaction.set(transaction_ref, transaction_data)
 
             # Execute the transaction
             _process_order_and_cogs(self.db.transaction())
+            # Clear cache AFTER transaction is successful
+            self.inventory_mgr._clear_caches()
+            self.promotion_mgr.get_active_price_program.clear()
             return True, order_id
         except Exception as e:
             return False, str(e)

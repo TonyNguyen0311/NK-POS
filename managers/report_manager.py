@@ -20,6 +20,68 @@ class ReportManager:
         self.inventory_collection = self.db.collection('inventory')
         self.categories_collection = self.db.collection('ProductCategories')
 
+    @st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})
+    def get_profit_loss_statement(_self, start_date: datetime, end_date: datetime, branch_ids: list = None):
+        """
+        Tạo báo cáo Lãi và Lỗ từ một nguồn dữ liệu duy nhất: collection 'transactions'.
+        """
+        try:
+            query = _self.transactions_collection \
+                         .where('created_at', '>=', start_date) \
+                         .where('created_at', '<=', end_date)
+            
+            if branch_ids:
+                query = query.where('branch_id', 'in', branch_ids)
+            
+            all_transactions = query.stream()
+
+            total_revenue = 0.0
+            total_cogs = 0.0
+            total_operating_expenses = 0.0
+            order_count = 0
+            op_expenses_by_group = {}
+
+            cost_groups_raw = _self.cost_mgr.get_all_category_items('cost_groups')
+            cost_groups = {g['id']: g['group_name'] for g in cost_groups_raw}
+
+            for trans in all_transactions:
+                trans_data = trans.to_dict()
+                trans_type = trans_data.get('type')
+
+                if trans_type == 'SALE':
+                    total_revenue += trans_data.get('total_amount', 0)
+                    total_cogs += trans_data.get('total_cogs', 0)
+                    order_count += 1
+                
+                elif trans_type == 'EXPENSE':
+                    expense_amount = abs(trans_data.get('total_amount', 0))
+                    total_operating_expenses += expense_amount
+                    group_id = trans_data.get('expense_details', {}).get('group_id')
+                    group_name = cost_groups.get(group_id, "Chưa phân loại")
+                    op_expenses_by_group[group_name] = op_expenses_by_group.get(group_name, 0) + expense_amount
+
+            gross_profit = total_revenue - total_cogs
+            net_profit = gross_profit - total_operating_expenses
+
+            return {
+                "success": True,
+                "data": {
+                    "start_date": start_date.strftime('%Y-%m-%d'),
+                    "end_date": end_date.strftime('%Y-%m-%d'),
+                    "branch_ids": branch_ids,
+                    "order_count": order_count,
+                    "total_revenue": total_revenue,
+                    "total_cogs": total_cogs,
+                    "gross_profit": gross_profit,
+                    "operating_expenses_by_group": op_expenses_by_group,
+                    "total_operating_expenses": total_operating_expenses,
+                    "net_profit": net_profit
+                }
+            }
+        except Exception as e:
+            logging.error(f"Lỗi khi tạo báo cáo P&L: {e}")
+            return {"success": False, "message": f"Đã xảy ra lỗi: {e}"}
+
     def get_profit_analysis_report(self, start_date: datetime, end_date: datetime, branch_ids: list):
         try:
             products_snapshot = self.products_collection.stream()
@@ -77,22 +139,9 @@ class ReportManager:
             return {"success": False, "message": str(e)}
 
     def get_inventory_report(self, branch_ids: list):
-        """
-        Tạo báo cáo tồn kho chi tiết, sử dụng giá vốn bình quân gia quyền (average_cost)
-        trực tiếp từ collection 'inventory'.
-        """
         try:
             products_snapshot = self.products_collection.stream()
-            product_details = {}
-            for p in products_snapshot:
-                p_data = p.to_dict()
-                for key, value in p_data.items():
-                    if isinstance(value, datetime):
-                        if hasattr(value, 'to_datetime'):
-                            p_data[key] = value.to_datetime().isoformat()
-                        else:
-                            p_data[key] = value.isoformat()
-                product_details[p.id] = p_data
+            product_details = {p.id: p.to_dict() for p in products_snapshot}
 
             inventory_query = self.inventory_collection
             if branch_ids:
@@ -100,48 +149,29 @@ class ReportManager:
             inventory_docs = list(inventory_query.stream())
 
             if not inventory_docs:
-                return {"success": True, "data": None, "message": "Không có dữ liệu tồn kho cho chi nhánh đã chọn."}
+                return {"success": True, "data": None, "message": "Không có dữ liệu tồn kho."}
 
             inventory_list = []
-            total_inventory_value = 0
-            total_inventory_items = 0
             for item_doc in inventory_docs:
                 item_data = item_doc.to_dict()
                 sku = item_data.get('sku')
-                quantity = item_data.get('stock_quantity', 0)
-                average_cost = item_data.get('average_cost', 0)
-                item_value = average_cost * quantity
                 product_info = product_details.get(sku, {})
                 inventory_list.append({
                     'product_id': sku,
                     'product_name': product_info.get('name', 'N/A'),
                     'branch_id': item_data.get('branch_id'),
-                    'quantity': quantity,
-                    'cost_price': average_cost,
-                    'total_value': item_value
+                    'quantity': item_data.get('stock_quantity', 0),
+                    'cost_price': item_data.get('average_cost', 0),
+                    'total_value': item_data.get('stock_quantity', 0) * item_data.get('average_cost', 0)
                 })
-                total_inventory_value += item_value
-                total_inventory_items += quantity
             
             if not inventory_list:
-                 return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ để hiển thị." }
+                 return { "success": True, "data": None, "message": "Không có dữ liệu tồn kho hợp lệ." }
 
             inventory_df = pd.DataFrame(inventory_list)
-            top_products_df = inventory_df.sort_values(by='total_value', ascending=False).head(10)
-            low_stock_df = inventory_df[inventory_df['quantity'] < 10].sort_values(by='quantity')
-
-            report_data = {
-                'total_inventory_value': total_inventory_value,
-                'total_inventory_items': total_inventory_items,
-                'inventory_details_df': inventory_df,
-                'top_products_by_value_df': top_products_df,
-                'low_stock_items_df': low_stock_df
-            }
-            return { "success": True, "data": report_data }
+            return { "success": True, "data": inventory_df }
         except Exception as e:
-            logging.error(f"Lỗi khi tạo báo cáo tồn kho: {e}", exc_info=True)
-            if "index" in str(e).lower():
-                return { "success": False, "message": f"Lỗi truy vấn Firestore, có thể bạn thiếu index. Chi tiết: {e}" }
+            logging.error(f"Lỗi khi tạo báo cáo tồn kho: {e}")
             return { "success": False, "message": str(e) }
 
     def get_revenue_report(self, start_date: datetime, end_date: datetime, branch_ids: list):
@@ -154,141 +184,18 @@ class ReportManager:
             transactions = query.stream()
 
             revenue_data = []
-            top_products = {}
-            total_revenue = 0
-            total_cogs = 0
-            total_orders = 0
-
             for trans in transactions:
-                trans_data = trans.to_dict()
-                created_at = trans_data['created_at']
-                total_revenue += trans_data.get('total_amount', 0)
-                total_cogs += trans_data.get('total_cogs', 0)
-                total_orders += 1
-                revenue_data.append({'date': created_at.date(), 'revenue': trans_data.get('total_amount', 0)})
-                
-                for item in trans_data.get('items', []):
-                    sku = item['sku']
-                    if sku not in top_products:
-                        top_products[sku] = {'name': item['name'], 'revenue': 0, 'profit': 0, 'quantity': 0}
-                    item_revenue = item['final_price'] * item['quantity']
-                    item_cogs = item.get('line_cogs', 0)
-                    item_profit = item_revenue - item_cogs
-                    top_products[sku]['revenue'] += item_revenue
-                    top_products[sku]['profit'] += item_profit
-                    top_products[sku]['quantity'] += item['quantity']
+                revenue_data.append(trans.to_dict())
 
             if not revenue_data:
-                return False, None, "Không có giao dịch nào trong khoảng thời gian này."
+                return {"success": True, "data": None, "message": "Không có giao dịch trong kỳ."}
 
-            gross_profit = total_revenue - total_cogs
-            revenue_df = pd.DataFrame(revenue_data).groupby('date')['revenue'].sum().reset_index()
-            revenue_df = revenue_df.set_index('date')
-            top_products_df = pd.DataFrame.from_dict(top_products, orient='index').sort_values(by='revenue', ascending=False)
-            top_products_df.rename(columns={'name': 'Tên sản phẩm', 'revenue': 'Doanh thu', 'profit': 'Lợi nhuận', 'quantity': 'Số lượng'}, inplace=True)
-
-            report = {
-                'total_revenue': total_revenue,
-                'total_profit': gross_profit,
-                'total_orders': total_orders,
-                'average_order_value': total_revenue / total_orders if total_orders > 0 else 0,
-                'revenue_by_day': revenue_df,
-                'top_products_by_revenue': top_products_df.head(5)
-            }
-            return True, report, "Tạo báo cáo thành công"
+            revenue_df = pd.DataFrame(revenue_data)
+            return {"success": True, "data": revenue_df}
         except Exception as e:
             logging.error(f"Lỗi khi lấy báo cáo doanh thu: {e}")
-            return False, None, str(e)
+            return {"success": False, "message": str(e)}
 
-    def get_profit_loss_statement(self, start_date: datetime, end_date: datetime, branch_id: str = None):
-        query = self.transactions_collection.where('type', '==', 'SALE') \
-                                       .where('created_at', '>=', start_date) \
-                                       .where('created_at', '<=', end_date)
-        if branch_id:
-            query = query.where('branch_id', '==', branch_id)
-        transactions = query.stream()
-        
-        total_revenue = 0
-        total_cogs = 0
-        order_count = 0
-        for trans in transactions:
-            trans_data = trans.to_dict()
-            total_revenue += trans_data.get('total_amount', 0)
-            total_cogs += trans_data.get('total_cogs', 0)
-            order_count += 1
-
-        gross_profit = total_revenue - total_cogs
-        op_expenses_by_group = {}
-        op_expenses_by_classification = {}
-        total_op_expenses = 0
-
-        cost_filters = {
-            'start_date': start_date,
-            'end_date': end_date,
-        }
-        if branch_id:
-            cost_filters['branch_id'] = branch_id
-
-        cost_entries = self.cost_mgr.query_cost_entries(filters=cost_filters)
-        cost_groups_raw = self.cost_mgr.get_all_category_items('cost_groups')
-        cost_groups = {g['id']: g['group_name'] for g in cost_groups_raw}
-
-        for entry in cost_entries:
-            cost_in_period = 0
-            entry_date = entry['entry_date']
-            if entry.get('is_amortized') and entry.get('amortization_months', 0) > 0:
-                cost_in_period = self._calculate_amortized_cost_for_period(entry, start_date, end_date)
-            elif not entry.get('is_amortized'):
-                if start_date <= entry_date <= end_date:
-                    cost_in_period = entry['amount']
-
-            if cost_in_period > 0:
-                total_op_expenses += cost_in_period
-                group_name = cost_groups.get(entry.get('group_id'), "Chưa phân loại")
-                op_expenses_by_group[group_name] = op_expenses_by_group.get(group_name, 0) + cost_in_period
-                classification_key = entry.get('classification', 'UNCATEGORIZED')
-                op_expenses_by_classification[classification_key] = op_expenses_by_classification.get(classification_key, 0) + cost_in_period
-
-        net_profit = gross_profit - total_op_expenses
-
-        return {
-            "success": True,
-            "start_date": start_date.strftime('%Y-%m-%d'),
-            "end_date": end_date.strftime('%Y-%m-%d'),
-            "branch_id": branch_id,
-            "order_count": order_count,
-            "total_revenue": total_revenue,
-            "total_cogs": total_cogs,
-            "gross_profit": gross_profit,
-            "operating_expenses_by_group": op_expenses_by_group,
-            "operating_expenses_by_classification": op_expenses_by_classification,
-            "total_operating_expenses": total_op_expenses,
-            "net_profit": net_profit
-        }
-
-    def _calculate_amortized_cost_for_period(self, cost_entry, report_start, report_end) -> float:
-        try:
-            amount = float(cost_entry['amount'])
-            months = int(cost_entry['amortization_months'])
-            entry_date = datetime.fromisoformat(cost_entry['entry_date']).replace(tzinfo=None)
-
-            if months <= 0: return 0
-
-            monthly_cost = amount / months
-            total_cost_in_period = 0
-
-            for i in range(months):
-                amortization_month_start = (entry_date + relativedelta(months=i)).replace(day=1)
-                if amortization_month_start > report_end: continue
-                amortization_month_end = amortization_month_start + relativedelta(months=1) - timedelta(days=1)
-                if amortization_month_end < report_start: continue
-                total_cost_in_period += monthly_cost
-            return total_cost_in_period
-        except (ValueError, TypeError, KeyError) as e:
-            logging.error(f"Error calculating amortization for entry {cost_entry.get('id')}: {e}")
-            return 0
-
-# Apply decorators after the class is defined
-ReportManager.get_profit_loss_statement = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_loss_statement)
 ReportManager.get_inventory_report = st.cache_data(ttl=300, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_inventory_report)
 ReportManager.get_profit_analysis_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_profit_analysis_report)
+ReportManager.get_revenue_report = st.cache_data(ttl=900, hash_funcs={ReportManager: hash_report_manager})(ReportManager.get_revenue_report)
