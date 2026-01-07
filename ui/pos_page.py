@@ -95,7 +95,7 @@ def render_product_gallery(product_mgr, inventory_mgr, branch_id):
                     st.markdown(f"<div class='product-title'>{p['name']}</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='product-price'>{format_currency(p.get('selling_price', 0), 'đ')}</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='product-stock'>Tồn kho: {format_number(stock_quantity)}</div>", unsafe_allow_html=True)
-                    if st.button("➕ Thêm vào giỏ", key=f"add_{sku}", use_container_width=True):
+                    if st.button("➕ Thêm", key=f"add_{sku}", use_container_width=True):
                         st.query_params['add_to_cart'] = sku
                         st.rerun()
 

@@ -73,7 +73,7 @@ MENU_STRUCTURE = {
         "Luân chuyển Kho",
         "Lịch sử Giao dịch",
     ],
-    "📈 Phân tích & Tăng trưởng": [
+    "📈 Báo cáo & Phân tích": [
         "Báo cáo P&L",
         "Báo cáo & Phân tích",
         "Quản lý Khuyến mãi",
