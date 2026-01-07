@@ -7,7 +7,7 @@ from datetime import datetime
 from managers.inventory_manager import InventoryManager
 from managers.product_manager import ProductManager
 from managers.branch_manager import BranchManager
-from managers.auth_manager import AuthManager
+from managers.auth_manager import AuthManager, hash_auth_manager
 
 # Import formatters and UI utils
 from ui._utils import render_page_title, render_section_header, render_sub_header, render_branch_selector
@@ -203,7 +203,7 @@ def render_inventory_page(inv_mgr: InventoryManager, prod_mgr: ProductManager, b
     elif st.session_state.active_inventory_tab == "📜 Lịch sử Chứng từ":
         render_section_header("Lịch sử Chứng từ Kho")
 
-        @st.cache_data(ttl=3600)
+        @st.cache_data(ttl=3600, hash_funcs={AuthManager: hash_auth_manager})
         def get_user_map(auth_manager):
             all_users = auth_manager.get_all_users()
             return {user['uid']: user['displayName'] for user in all_users}
