@@ -32,7 +32,7 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
     default_branch_id = user.get('default_branch_id')
     all_branches_map = {b['id']: b['name'] for b in branch_mgr.list_branches()}
     
-    # FINAL FIX: Use the correct key "CostGroups"
+    # FINAL, CORRECT FIX: Use the correct key "CostGroups"
     cost_groups_raw = prod_mgr.get_all_category_items("CostGroups")
     group_map = {g['id']: g['category_name'] for g in cost_groups_raw}
 
@@ -66,7 +66,12 @@ def render_cost_entry_page(cost_mgr: CostManager, branch_mgr: BranchManager, aut
                 entry_date = st.date_input("Ngày chi", datetime.now())
 
             with c2:
-                selected_group_id = st.selectbox("Nhóm chi phí", options=list(group_map.keys()), format_func=lambda x: group_map.get(x, x))
+                # Add a check to ensure there are options to show
+                if group_map:
+                    selected_group_id = st.selectbox("Nhóm chi phí", options=list(group_map.keys()), format_func=lambda x: group_map.get(x, x))
+                else:
+                    st.selectbox("Nhóm chi phí", options=[], help="Chưa có nhóm chi phí nào được tạo. Vui lòng tạo ở trang Danh mục.")
+                    selected_group_id = None # Ensure it's None if no groups
                 name = st.text_input("Mô tả/Diễn giải chi phí")
             
             st.divider()
