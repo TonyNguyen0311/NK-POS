@@ -42,6 +42,9 @@ from ui.transactions_page import render_transactions_page
 # --- UI Utils ---
 from ui._utils import inject_custom_css
 
+# --- App Hotfix (Force Reload) ---
+# This comment is added to force Streamlit Cloud to reload the app and all modules.
+
 st.set_page_config(layout="wide", page_title="NK-POS Retail Management")
 
 # --- MENU PERMISSIONS & STRUCTURE ---
@@ -127,7 +130,6 @@ def init_managers():
     st.session_state.product_mgr = ProductManager(fb_client, price_mgr=st.session_state.price_mgr)
     st.session_state.auth_mgr = AuthManager(fb_client, st.session_state.settings_mgr)
     st.session_state.report_mgr = ReportManager(fb_client, st.session_state.cost_mgr)
-    # SỬA LỖI: Truyền inventory_mgr vào AdminManager
     st.session_state.admin_mgr = AdminManager(fb_client, st.session_state.inventory_mgr)
     st.session_state.txn_mgr = TransactionManager(fb_client)
     st.session_state.pos_mgr = POSManager(
