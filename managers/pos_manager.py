@@ -22,8 +22,6 @@ class POSManager:
 
     def add_item_to_cart(self, branch_id: str, product_data: dict, stock_quantity: int):
         sku = product_data['sku']
-        # SỬA LỖI: Lấy giá bán trực tiếp từ dữ liệu sản phẩm đã được tải trước đó.
-        # Dữ liệu này đã được làm giàu với giá bán của chi nhánh bởi ProductManager.
         current_price = product_data.get('selling_price', 0)
 
         if current_price <= 0:
@@ -33,7 +31,6 @@ class POSManager:
         if sku in st.session_state.pos_cart:
             self.update_item_quantity(sku, st.session_state.pos_cart[sku]['quantity'] + 1)
         else:
-            # Lấy thông tin ảnh từ product_data thay vì image_url
             image_id = product_data.get('image_id')
             st.session_state.pos_cart[sku] = {
                 "sku": sku,
@@ -43,7 +40,7 @@ class POSManager:
                 "cost_price": product_data.get('cost_price', 0),
                 "quantity": 1,
                 "stock": stock_quantity,
-                "image_id": image_id # Lưu image_id để có thể tạo URL xem sau
+                "image_id": image_id
             }
 
     def update_item_quantity(self, sku: str, new_quantity: int):
@@ -137,6 +134,7 @@ class POSManager:
             return False, "Mức giảm giá thêm không hợp lệ."
 
         order_id = self._create_order_id(branch_id)
+        creation_timestamp = datetime.now() # Use a single timestamp for both records
         
         order_items_to_save = []
         total_cogs = 0 
@@ -166,7 +164,7 @@ class POSManager:
                 "auto_discount_applied": item['auto_discount_applied'],
                 "manual_discount_applied": proportional_manual_discount,
                 "final_price": final_price_per_unit,
-                "image_id": item.get('image_id') # Thêm image_id vào dữ liệu lưu trữ
+                "image_id": item.get('image_id')
             })
 
         final_order_data = {
@@ -181,14 +179,31 @@ class POSManager:
             "grand_total": cart_state['grand_total'],
             "total_cogs": total_cogs,
             "promotion_id": cart_state['active_promotion']['id'] if cart_state['active_promotion'] else None,
-            "created_at": datetime.now().isoformat(),
+            "created_at": creation_timestamp.isoformat(),
             "status": "COMPLETED"
+        }
+
+        # Create the corresponding transaction record for reporting and history
+        transaction_data = {
+            "id": order_id,
+            "branch_id": branch_id,
+            "created_at": creation_timestamp, # Use datetime object for correct querying
+            "total_amount": final_order_data["grand_total"],
+            "total_cogs": total_cogs,
+            "sub_total": final_order_data["subtotal"],
+            "discount_amount": final_order_data["total_auto_discount"] + final_order_data["total_manual_discount"],
+            "cashier_id": seller_id,
+            "items": order_items_to_save,
+            "customer_id": customer_id if customer_id != "-" else None,
+            "payment_method": "Tiền mặt",
+            "status": "COMPLETED",
+            "type": "SALE"
         }
 
         try:
             @firestore.transactional
             def _process_order(transaction):
-                order_ref = self.orders_collection.document(order_id)
+                # 1. Update Inventory
                 for item in order_items_to_save:
                     self.inventory_mgr.update_inventory(
                         transaction=transaction,
@@ -198,6 +213,8 @@ class POSManager:
                         order_id=order_id,
                         user_id=seller_id
                     )
+
+                # 2. Update Customer Stats
                 if customer_id != "-":
                     self.customer_mgr.update_customer_stats(
                         transaction=transaction,
@@ -205,7 +222,14 @@ class POSManager:
                         amount_spent_delta=final_order_data['grand_total'],
                         points_delta=int(final_order_data['grand_total'] / 1000) 
                     )
+                
+                # 3. Write Order Document
+                order_ref = self.orders_collection.document(order_id)
                 transaction.set(order_ref, final_order_data)
+
+                # 4. Write Transaction Document (THE FIX)
+                transaction_ref = self.db.collection('transactions').document(order_id)
+                transaction.set(transaction_ref, transaction_data)
 
             _process_order(self.db.transaction())
             return True, order_id
